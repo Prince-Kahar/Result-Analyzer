@@ -36,7 +36,7 @@ export const Navbar = ({ onOpenMenu, onOpenSearch }) => {
         <button
           type="button"
           onClick={onOpenMenu}
-          className="lg:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+          className="md:hidden hamburger-btn p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
           title="Open Menu"
         >
           <Menu size={22} />

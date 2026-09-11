@@ -27,49 +27,74 @@ export const MobileDrawer = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const navItems = [
+    { section: 'Overview' },
     { path: '/dashboard', label: 'Executive Dashboard', icon: LayoutDashboard },
     { path: '/upload', label: 'Upload VNSGU PDF', icon: Upload },
+
+    { section: 'Analytics' },
     { path: '/lookup', label: 'Student Lookup', icon: Search },
     { path: '/toppers', label: 'Merit & Toppers', icon: Award },
     { path: '/failed', label: 'Backlogs & ATKT', icon: AlertTriangle },
     { path: '/subjects', label: 'Subject Diagnostics', icon: BookOpen },
     { path: '/colleges', label: 'College Ranks', icon: Building2 },
+
+    { section: 'Credentials & Reports' },
     { path: '/certificates', label: 'Certificate Studio', icon: FileCheck2 },
     { path: '/risk-radar', label: 'Academic Risk Radar', icon: Radar },
     { path: '/reports', label: 'Reports Center', icon: FileText },
     { path: '/verify', label: 'Public Credential QR', icon: ShieldCheck },
+
+    { section: 'Support & Config' },
     { path: '/helpdesk', label: 'Help Desk Tickets', icon: HelpCircle },
     { path: '/settings', label: 'Settings & Branding', icon: Settings },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-50 flex animate-fade-in">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
+      <div 
+        className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity" 
+        onClick={onClose}
+        aria-hidden="true"
+      ></div>
 
       {/* Drawer panel */}
-      <div className="relative w-72 max-w-[85vw] bg-slate-900 border-r border-slate-800 p-4 flex flex-col justify-between h-full z-10 shadow-2xl animate-in slide-in-from-left duration-200">
-        <div>
+      <div className="relative w-72 max-w-[85vw] bg-slate-900/95 border-r border-slate-800 p-4 flex flex-col justify-between h-full z-10 shadow-2xl backdrop-blur-xl">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Header */}
-          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <img src="/assets/logo.png" alt="SASCMA" className="w-8 h-8 rounded-lg" />
+          <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-800/80">
+            <div 
+              className="flex items-center gap-2.5 cursor-pointer"
+              onClick={() => {
+                navigate('/dashboard');
+                onClose();
+              }}
+            >
+              <img src="/assets/logo.png" alt="SASCMA" className="w-8 h-8 rounded-lg object-contain shadow" />
               <div>
-                <h3 className="text-sm font-bold text-white leading-tight">SASCMA STERS</h3>
-                <span className="text-[10px] text-teal-400 font-semibold">Result Analyzer</span>
+                <h3 className="text-sm font-extrabold text-white leading-tight">SASCMA STERS</h3>
+                <span className="text-[10px] text-teal-400 font-semibold">Result Intelligence</span>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/80 transition-colors"
+              title="Close Menu"
             >
               <X size={20} />
             </button>
           </div>
 
-          {/* Nav items */}
-          <nav className="space-y-1 overflow-y-auto max-h-[calc(100vh-160px)] pr-1">
-            {navItems.map((item) => {
+          {/* Nav items list */}
+          <nav className="space-y-1 overflow-y-auto flex-1 pr-1 py-2">
+            {navItems.map((item, idx) => {
+              if (item.section) {
+                return (
+                  <div key={idx} className="pt-3 pb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {item.section}
+                  </div>
+                );
+              }
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
               return (
@@ -79,13 +104,13 @@ export const MobileDrawer = ({ isOpen, onClose }) => {
                     navigate(item.path);
                     onClose();
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold rounded-xl transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-xl transition-all duration-150 ${
                     isActive
-                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
-                      : 'text-slate-300 hover:bg-slate-800/60'
+                      ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
-                  <Icon size={18} className={isActive ? 'text-teal-400' : 'text-slate-400'} />
+                  <Icon size={16} className={isActive ? 'text-teal-400' : 'text-slate-400'} />
                   <span>{item.label}</span>
                 </button>
               );
@@ -95,7 +120,7 @@ export const MobileDrawer = ({ isOpen, onClose }) => {
 
         {/* Footer */}
         {isAuthenticated && (
-          <div className="pt-3 border-t border-slate-800">
+          <div className="pt-3 border-t border-slate-800/80 mt-2">
             <button
               onClick={() => {
                 logout();

@@ -47,7 +47,7 @@ export const Sidebar = () => {
   ];
 
   return (
-    <aside className="sidebar-desktop p-4 flex flex-col justify-between select-none">
+    <aside className="sidebar-desktop p-4 select-none">
       <div>
         {/* Brand Header */}
         <div

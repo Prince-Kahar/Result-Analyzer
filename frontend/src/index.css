@@ -173,12 +173,12 @@ h1, h2, h3, h4, h5, h6, .brand-font {
   flex-direction: column;
 }
 
-/* Desktop: Fixed Sidebar */
-@media (min-width: 1025px) {
+/* Desktop & Tablet (>= 768px): Fixed Sidebar visible as-is */
+@media (min-width: 768px) {
   .sidebar-desktop {
-    width: 270px;
+    width: 260px;
     flex-shrink: 0;
-    display: flex;
+    display: flex !important;
     flex-direction: column;
     border-right: 1px solid var(--card-border);
     background: var(--card-bg);
@@ -192,20 +192,13 @@ h1, h2, h3, h4, h5, h6, .brand-font {
   }
 }
 
-/* Tablet: Compact Sidebar or Drawer */
-@media (min-width: 641px) and (max-width: 1024px) {
+/* Mobile (< 768px): Sidebar completely hidden on screen, opened only via 3-line hamburger menu */
+@media (max-width: 767px) {
   .sidebar-desktop {
-    display: none;
+    display: none !important;
   }
-  .kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-}
-
-/* Mobile: Full-width cards, Off-canvas drawer */
-@media (max-width: 640px) {
-  .sidebar-desktop {
-    display: none;
+  .hamburger-btn {
+    display: inline-flex !important;
   }
   .kpi-grid {
     grid-template-columns: 1fr !important;
