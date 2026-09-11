@@ -1,23 +1,101 @@
 {
   "name": "SASCMA STERS - VNSGU Result Analyzer",
   "short_name": "Result Analyzer",
-  "description": "Veer Narmad South Gujarat University Academic Result Intelligence & Merit Analytics",
+  "description": "Veer Narmad South Gujarat University Academic Result Intelligence & Merit Analytics Suite",
+  "id": "sascma-vnsgu-result-analyzer",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#020617",
   "theme_color": "#0d9488",
-  "icons": [
-    {
-      "src": "/assets/logo.png",
-      "sizes": "192x192 512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ],
+  "lang": "en",
+  "dir": "ltr",
   "categories": [
     "education",
     "productivity",
     "utilities"
-  ]
+  ],
+  "icons": [
+    {
+      "src": "/assets/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Student Lookup",
+      "short_name": "Lookup",
+      "description": "Quick search for student grade sheets and mark cards",
+      "url": "/lookup",
+      "icons": [
+        {
+          "src": "/assets/logo.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Merit & Toppers",
+      "short_name": "Toppers",
+      "description": "View university rankers and merit toppers",
+      "url": "/toppers",
+      "icons": [
+        {
+          "src": "/assets/logo.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Executive Dashboard",
+      "short_name": "Dashboard",
+      "description": "Comprehensive academic result overview",
+      "url": "/dashboard",
+      "icons": [
+        {
+          "src": "/assets/logo.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Upload PDF",
+      "short_name": "Upload",
+      "description": "Upload VNSGU result gazette",
+      "url": "/upload",
+      "icons": [
+        {
+          "src": "/assets/logo.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
 }

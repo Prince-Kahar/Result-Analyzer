@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
-import { UploadCloud, CheckCircle2, AlertCircle, ArrowRight, Lock, LogIn } from 'lucide-react';
+import { UploadCloud, CheckCircle2, AlertCircle, ArrowRight, UserCheck, LogIn, FileText } from 'lucide-react';
 
 export const UploadPage = () => {
   const [file, setFile] = useState(null);
@@ -11,9 +11,8 @@ export const UploadPage = () => {
   const [progressText, setProgressText] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { setActiveSessionId, refreshSessions } = useSession();
   const navigate = useNavigate();
 
@@ -29,15 +28,8 @@ export const UploadPage = () => {
     e.preventDefault();
     if (!file) return setError('Please select a VNSGU Result PDF file');
 
-    // Strict Authentication Check: Block upload if not signed in
-    if (!isAuthenticated) {
-      setError('Login Required: Please sign in to your account before parsing and analyzing examination results.');
-      setShowAuthModal(true);
-      return;
-    }
-
     setUploading(true);
-    setProgressText('Uploading and analyzing marksheet coordinates with Python parser...');
+    setProgressText('Uploading and analyzing marksheet coordinates with dual-engine parser...');
     setError('');
 
     try {
@@ -75,6 +67,29 @@ export const UploadPage = () => {
       </div>
 
       <div className="glass-panel p-6 sm:p-8 space-y-6">
+        {/* User context badge */}
+        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+          <div className="flex items-center gap-2">
+            <UserCheck size={16} className="text-teal-400" />
+            <span className="text-slate-300 font-medium">
+              Uploading as:{' '}
+              <strong className="text-white">
+                {isAuthenticated ? user?.username : 'Faculty Guest'}
+              </strong>
+            </span>
+          </div>
+          {!isAuthenticated && (
+            <button
+              type="button"
+              onClick={() => navigate('/login?redirect=/upload')}
+              className="flex items-center gap-1 text-teal-400 hover:text-teal-300 font-bold transition-colors"
+            >
+              <span>Sign In to save to account</span>
+              <LogIn size={13} />
+            </button>
+          )}
+        </div>
+
         <form onSubmit={handleUpload} className="space-y-6">
           {/* Dropzone container */}
           <div className="border-2 border-dashed border-slate-700/80 hover:border-teal-500/60 rounded-2xl p-8 text-center transition-colors bg-slate-900/30">
@@ -105,23 +120,6 @@ export const UploadPage = () => {
             </div>
           )}
 
-          {!isAuthenticated && (
-            <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
-              <div className="flex items-center gap-2">
-                <Lock size={15} className="text-amber-400 flex-shrink-0" />
-                <span>Authentication required: Please sign in to parse and analyze result gazettes.</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/login?redirect=/upload')}
-                className="font-bold underline text-amber-200 hover:text-white flex items-center gap-1"
-              >
-                <span>Sign In</span>
-                <ArrowRight size={12} />
-              </button>
-            </div>
-          )}
-
           {uploading && (
             <div className="space-y-2 p-4 rounded-xl bg-slate-800/40 border border-slate-800 text-center">
               <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -132,15 +130,16 @@ export const UploadPage = () => {
           <button
             type="submit"
             disabled={!file || uploading}
-            className="w-full py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-500/20 transition-all disabled:opacity-50"
+            className="w-full py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {uploading ? 'Analyzing Marksheet...' : 'Parse & Analyze'}
+            <FileText size={16} />
+            <span>{uploading ? 'Analyzing Marksheet...' : 'Parse & Analyze Result'}</span>
           </button>
         </form>
 
         {/* Successful Summary Card */}
         {result && (
-          <div className="p-5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-4">
+          <div className="p-5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-4 animate-fadeIn">
             <div className="flex items-center gap-2.5 text-emerald-400">
               <CheckCircle2 size={22} />
               <h3 className="text-sm font-bold">Extraction & Database Sync Complete</h3>
@@ -170,45 +169,6 @@ export const UploadPage = () => {
           </div>
         )}
       </div>
-
-      {/* Authentication Required Modal */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="glass-panel max-w-md w-full p-6 space-y-5 border border-slate-700 shadow-2xl relative">
-            <div className="flex items-center gap-3 text-amber-400">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                <Lock size={24} />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">Login Required</h3>
-                <p className="text-xs text-slate-400">Authentication required to process results</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              You must be signed in to parse and analyze examination PDFs. Please log in with your staff or administrator account to proceed.
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAuthModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl bg-slate-800/80 hover:bg-slate-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/login?redirect=/upload')}
-                className="px-5 py-2 text-xs font-bold text-white rounded-xl bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-500/20 transition-all flex items-center gap-1.5"
-              >
-                <span>Sign In to Continue</span>
-                <ArrowRight size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

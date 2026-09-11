@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { usePWA } from '../context/PWAContext';
 import {
   LayoutDashboard,
   Upload,
@@ -15,11 +16,14 @@ import {
   FileText,
   Settings,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Monitor,
+  Download
 } from 'lucide-react';
 
 export const Sidebar = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const { isInstalled, promptInstall } = usePWA();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -47,12 +51,12 @@ export const Sidebar = () => {
   ];
 
   return (
-    <aside className="sidebar-desktop p-4 select-none">
-      <div>
+    <aside className="sidebar-desktop p-4 select-none flex flex-col justify-between">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Brand Header */}
         <div
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-3 px-2 py-3 mb-4 rounded-xl cursor-pointer hover:bg-slate-800/40 transition-colors"
+          className="flex items-center gap-3 px-2 py-3 mb-4 rounded-xl cursor-pointer hover:bg-slate-800/40 transition-colors flex-shrink-0"
           title="VNSGU Academic Intelligence"
         >
           <img src="/assets/logo.png" alt="SASCMA" className="w-9 h-9 rounded-lg object-contain shadow-md" />
@@ -63,7 +67,7 @@ export const Sidebar = () => {
         </div>
 
         {/* Navigation list */}
-        <nav className="space-y-1 overflow-y-auto max-h-[calc(100vh-190px)] pr-1">
+        <nav className="space-y-1 overflow-y-auto flex-1 pr-1">
           {navItems.map((item, idx) => {
             if (item.section) {
               return (
@@ -93,30 +97,56 @@ export const Sidebar = () => {
         </nav>
       </div>
 
-      {/* User Footer / Logout */}
-      {isAuthenticated && (
-        <div className="pt-3 border-t border-slate-800/80">
-          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/80">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center justify-center font-bold text-xs flex-shrink-0">
-                {user?.username?.[0]?.toUpperCase() || 'U'}
+      {/* Bottom Area: Desktop PWA Card & User Profile */}
+      <div className="pt-3 flex-shrink-0 space-y-3">
+        {/* Desktop PWA Install Card */}
+        {!isInstalled && (
+          <div className="p-3 rounded-xl bg-gradient-to-br from-teal-950/40 via-slate-900/80 to-slate-900 border border-teal-500/30 shadow-sm">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="p-1.5 rounded-lg bg-teal-500/20 text-teal-300">
+                <Monitor size={14} />
               </div>
-              <div className="truncate">
-                <p className="text-xs font-bold text-slate-200 truncate">{user?.username}</p>
-                <p className="text-[10px] text-teal-400 font-medium truncate">{user?.college_name || 'VNSGU Faculty'}</p>
-              </div>
+              <span className="text-xs font-bold text-white">Desktop Application</span>
             </div>
+            <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
+              Install native standalone app for Windows / Mac with taskbar pin & instant speed.
+            </p>
             <button
               type="button"
-              onClick={logout}
-              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-              title="Logout"
+              onClick={promptInstall}
+              className="w-full flex items-center justify-center gap-2 py-1.5 px-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
             >
-              <LogOut size={16} />
+              <Download size={13} />
+              <span>Install on PC / Mac</span>
             </button>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* User Profile / Logout */}
+        {isAuthenticated && (
+          <div className="border-t border-slate-800/80 pt-3">
+            <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/80">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                  {user?.username?.[0]?.toUpperCase() || 'U'}
+                </div>
+                <div className="truncate">
+                  <p className="text-xs font-bold text-slate-200 truncate">{user?.username}</p>
+                  <p className="text-[10px] text-teal-400 font-medium truncate">{user?.college_name || 'VNSGU Faculty'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                title="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </aside>
   );
 };

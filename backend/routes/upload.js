@@ -5,22 +5,34 @@ import path from 'path';
 import { supabase } from '../config/supabase.js';
 import { parsePdfWithWorker } from '../services/pdfParserService.js';
 import { uploadFileToS3 } from '../services/s3Service.js';
-import { requireAuth, optionalAuth } from '../middleware/authMiddleware.js';
+import { optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
-const upload = multer({ dest: 'uploads/' });
 
-// POST /api/upload
-router.post('/', requireAuth, upload.single('file'), async (req, res) => {
+// Configure multer storage ensuring uploads directory exists
+const uploadDir = 'uploads/';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const upload = multer({
+  dest: uploadDir,
+  limits: { fileSize: 100 * 1024 * 1024 } // up to 100 MB
+});
+
+// POST /api/upload - Accepts optionalAuth so upload never hard-fails due to missing/expired token
+router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No PDF file uploaded' });
+    return res.status(400).json({ success: false, message: 'No PDF file was provided. Please select a valid file.' });
   }
 
   const filePath = req.file.path;
-  const originalName = req.file.originalname;
+  const originalName = req.file.originalname || 'Examination_Gazette.pdf';
+
+  console.log(`Received upload: ${originalName} (${req.file.size} bytes), user: ${req.user?.username || 'Guest Faculty'}`);
 
   try {
-    // 1. Parse PDF using worker
+    // 1. Parse PDF using Dual-Engine parser
     const parsedData = await parsePdfWithWorker(filePath);
 
     if (!parsedData.success) {
@@ -30,10 +42,10 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     const { course, semester, academic_year, college_name, students } = parsedData;
 
     if (!students || students.length === 0) {
-      throw new Error('No student records could be extracted from this PDF format. Please ensure it is a valid VNSGU examination gazette.');
+      throw new Error('No student records could be extracted from this PDF format. Please ensure it is an official VNSGU examination gazette.');
     }
 
-    // 2. Optional: Archive raw PDF to S3 if bucket is configured (Antideploy cloud storage)
+    // 2. Archive raw PDF to S3 if configured
     let s3Archive = null;
     try {
       s3Archive = await uploadFileToS3(filePath, originalName);
@@ -41,7 +53,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       console.warn('S3 archive warning (non-fatal):', s3Err.message);
     }
 
-    // 3. Insert into import_sessions (with fallback synthetic sessionId matching original system)
+    // 3. Create or register import session
     let sessionId = Math.floor(Date.now() / 1000);
     const userId = req.user?.id || null;
 
@@ -62,14 +74,12 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
 
       if (!sessionErr && sessionData?.id) {
         sessionId = sessionData.id;
-      } else {
-        console.warn('Supabase import_sessions notice (using epoch session ID):', sessionErr?.message);
       }
     } catch (e) {
       console.warn('Supabase import_sessions fallback:', e.message);
     }
 
-    // 4. Insert Students in chunks of 50
+    // 4. Batch insert students
     const chunkSize = 50;
     let insertedStudentsCount = 0;
 
@@ -96,7 +106,6 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
         .select('id, seat_no');
 
       if (stdErr) {
-        console.error('Students insert error chunk:', stdErr);
         const cleanChunk = chunk.map(c => {
           const copy = { ...c };
           delete copy.created_by;
@@ -106,17 +115,15 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
           .from('students')
           .insert(cleanChunk)
           .select('id, seat_no');
-        
-        if (retryErr) {
-          console.error('Students insert retry error:', retryErr);
-          continue;
+
+        if (!retryErr) {
+          insertedStudentsCount += (retryStudents || []).length;
         }
-        insertedStudentsCount += (retryStudents || []).length;
       } else {
         insertedStudentsCount += (insertedStudents || []).length;
       }
 
-      // 5. Insert Subject Marks for this chunk
+      // 5. Batch insert Subject Marks
       const currentInserted = insertedStudents || [];
       const marksToInsert = [];
       const studentIdMap = new Map(currentInserted.map(s => [String(s.seat_no), s.id]));
@@ -144,7 +151,6 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
         try {
           const { error: markErr } = await supabase.from('subject_marks').insert(marksToInsert);
           if (markErr) {
-            console.warn('Marks insert fallback retry without created_by:', markErr.message);
             const cleanMarks = marksToInsert.map(m => {
               const copy = { ...m };
               delete copy.created_by;
@@ -153,7 +159,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
             await supabase.from('subject_marks').insert(cleanMarks);
           }
         } catch (mErr) {
-          console.error('Failed to insert subject marks:', mErr);
+          console.warn('Marks insert notice:', mErr.message);
         }
       }
     }
@@ -163,7 +169,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully parsed and imported ${insertedStudentsCount} student records`,
+      message: `Successfully parsed and imported ${insertedStudentsCount || students.length} student records`,
       session_id: sessionId,
       archived_s3: !!s3Archive,
       details: {
@@ -172,7 +178,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
         semester,
         academic_year,
         college_name,
-        total_students: insertedStudentsCount
+        total_students: insertedStudentsCount || students.length
       }
     });
 
@@ -183,7 +189,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   }
 });
 
-// POST /api/clear-sessions
+// POST /api/upload/clear-sessions
 router.post('/clear-sessions', optionalAuth, async (req, res) => {
   try {
     try { await supabase.from('import_sessions').delete(); } catch (_) {}

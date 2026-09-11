@@ -3,10 +3,13 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { SessionProvider } from './context/SessionContext';
+import { PWAProvider, usePWA } from './context/PWAContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { MobileDrawer } from './components/MobileDrawer';
 import { CommandPalette } from './components/CommandPalette';
+import { PWAInstallGuideModal } from './components/PWAInstallGuideModal';
+import { Download, Monitor, Smartphone } from 'lucide-react';
 
 // Pages
 import { LandingPage } from './pages/LandingPage';
@@ -31,6 +34,7 @@ function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { isInstalled, promptInstall, platform } = usePWA();
 
   // Landing Page: Full-screen presentation mode without inner app sidebar
   if (location.pathname === '/') {
@@ -53,6 +57,20 @@ function AppLayout() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {!isInstalled && (
+              <button
+                onClick={promptInstall}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 rounded-xl transition-all"
+              >
+                {platform === 'ios' || platform === 'android' ? (
+                  <Smartphone size={14} className="text-teal-400" />
+                ) : (
+                  <Monitor size={14} className="text-teal-400" />
+                )}
+                <span>{platform === 'ios' || platform === 'android' ? 'Install App' : 'Install Desktop App'}</span>
+              </button>
+            )}
+
             <button
               onClick={() => navigate('/verify')}
               className="hidden sm:inline-flex text-xs font-semibold text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800/50 transition-colors"
@@ -81,6 +99,9 @@ function AppLayout() {
         <footer className="py-6 px-4 border-t border-slate-800/80 text-center text-xs text-slate-500">
           <p>© {new Date().getFullYear()} SASCMA STERS Academic Intelligence. Veer Narmad South Gujarat University.</p>
         </footer>
+
+        {/* Global PWA Install Guide Modal */}
+        <PWAInstallGuideModal />
       </div>
     );
   }
@@ -137,6 +158,9 @@ function AppLayout() {
           </Routes>
         </main>
       </div>
+
+      {/* Global PWA Install Guide Modal */}
+      <PWAInstallGuideModal />
     </div>
   );
 }
@@ -147,7 +171,9 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <SessionProvider>
-            <AppLayout />
+            <PWAProvider>
+              <AppLayout />
+            </PWAProvider>
           </SessionProvider>
         </AuthProvider>
       </ThemeProvider>
