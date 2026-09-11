@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -92,6 +93,19 @@ app.get('/api/health', (req, res) => {
 });
 
 // Global error handler
+
+// Serve production singlefile frontend
+const frontendDist = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/assets')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
+
 app.use((err, req, res, next) => {
   console.error('Unhandled server error:', err);
   res.status(500).json({ success: false, message: err.message || 'Internal Server Error' });

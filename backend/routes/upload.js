@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabase } from '../config/supabase.js';
 import { parsePdfWithWorker } from '../services/pdfParserService.js';
-import { requireAuth } from '../middleware/authMiddleware.js';
+import { requireAuth, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 const upload = multer({ dest: 'uploads/' });
