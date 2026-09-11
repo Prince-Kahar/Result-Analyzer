@@ -1,0 +1,23 @@
+{
+  "name": "SASCMA STERS - VNSGU Result Analyzer",
+  "short_name": "Result Analyzer",
+  "description": "Veer Narmad South Gujarat University Academic Result Intelligence & Merit Analytics",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#0d9488",
+  "icons": [
+    {
+      "src": "/assets/logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "education",
+    "productivity",
+    "utilities"
+  ]
+}

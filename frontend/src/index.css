@@ -255,3 +255,55 @@ button, .clickable {
   min-height: 40px;
   touch-action: manipulation;
 }
+
+/* =======================================================
+   Print Styles for Official Marksheet & PDF Export
+   ======================================================= */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .sidebar-desktop,
+  header,
+  .ambient-blobs,
+  .no-print,
+  button,
+  .fixed.inset-0.bg-slate-950\/80,
+  .fixed.inset-0.bg-black\/80 {
+    display: none !important;
+  }
+  .marksheet-modal-wrapper {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+  }
+  .marksheet-card {
+    border: 2px solid #0f172a !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+  .marksheet-card * {
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+  .marksheet-header-bar {
+    display: none !important;
+  }
+  .marksheet-body {
+    padding: 16px !important;
+  }
+  .status-badge {
+    border: 1px solid #0f172a !important;
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+  }
+}

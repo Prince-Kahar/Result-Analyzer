@@ -1,10 +1,10 @@
 import React from 'react';
-import { X, Printer, Share2, Mail, QrCode, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Printer, Share2, QrCode, ShieldCheck, Download } from 'lucide-react';
 
 export const MarksheetModal = ({ data, onClose }) => {
   if (!data) return null;
 
-  const { student, subjects = [], session = {}, verification_hash, semester_trends = [] } = data;
+  const { student, subjects = [], session = {}, verification_hash = 'VNSGU-AUTH-VERIFIED' } = data;
 
   const handlePrint = () => {
     window.print();
@@ -12,21 +12,24 @@ export const MarksheetModal = ({ data, onClose }) => {
 
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
-      `🎓 *VNSGU Examination Result*\n` +
-      `Student: ${student.name}\n` +
-      `Seat No: ${student.seat_no}\n` +
-      `SGPA: ${student.sgpa} (${student.overall_grade})\n` +
-      `Status: ${student.overall_status}\n` +
-      `Verify: ${window.location.origin}/api/verify/student/${student.seat_no}`
+      `🎓 *VNSGU Examination Grade Card*\n` +
+      `🏛 *College:* ${student.college || session.college_name || 'VNSGU Affiliated'}\n` +
+      `👤 *Student:* ${student.name}\n` +
+      `🔢 *Seat No:* ${student.seat_no}\n` +
+      `📊 *Marks:* ${student.total_marks} / 700 (${student.percentage}%)\n` +
+      `⭐ *SGPA:* ${student.sgpa} (Grade: ${student.overall_grade})\n` +
+      `🏁 *Status:* ${student.overall_status}\n` +
+      `━━━━━━━━━━━━━━━━━━\n` +
+      `🔗 Verified by SASCMA STERS Result Intelligence`
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden my-6">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-800/90 border-b border-slate-700">
+    <div className="marksheet-modal-wrapper fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+      <div className="marksheet-card relative w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden my-6">
+        {/* Header Bar (Hidden on Print) */}
+        <div className="marksheet-header-bar flex items-center justify-between px-5 py-3.5 bg-slate-800/90 border-b border-slate-700 no-print">
           <div className="flex items-center gap-2">
             <ShieldCheck size={20} className="text-teal-400" />
             <h3 className="text-sm font-bold text-white">Digital Academic Grade Card</h3>
@@ -34,21 +37,24 @@ export const MarksheetModal = ({ data, onClose }) => {
           <div className="flex items-center gap-2">
             <button
               onClick={handleWhatsAppShare}
-              className="p-1.5 text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-xl transition-all"
               title="Share on WhatsApp"
             >
-              <Share2 size={18} />
+              <Share2 size={14} />
+              <span className="hidden sm:inline">WhatsApp</span>
             </button>
             <button
               onClick={handlePrint}
-              className="p-1.5 text-sky-400 hover:bg-sky-500/10 rounded-lg transition-colors"
-              title="Print Marksheet"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 rounded-xl transition-all"
+              title="Print / Save Marksheet as PDF"
             >
-              <Printer size={18} />
+              <Printer size={14} />
+              <span>Print / Save PDF</span>
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors ml-1"
+              title="Close"
             >
               <X size={18} />
             </button>
@@ -56,12 +62,12 @@ export const MarksheetModal = ({ data, onClose }) => {
         </div>
 
         {/* Marksheet Body (Printable) */}
-        <div className="p-6 space-y-6 print:p-0 print:text-black">
+        <div className="marksheet-body p-6 space-y-6">
           {/* University Header */}
           <div className="text-center pb-4 border-b border-slate-800">
             <img src="/assets/vnsgu.png" alt="VNSGU Logo" className="w-14 h-14 mx-auto mb-2 object-contain" />
-            <h2 className="text-lg font-extrabold text-white tracking-wide">VEER NARMAD SOUTH GUJARAT UNIVERSITY</h2>
-            <p className="text-xs text-teal-400 font-semibold uppercase">{session.college_name || student.college}</p>
+            <h2 className="text-lg font-extrabold tracking-wide">VEER NARMAD SOUTH GUJARAT UNIVERSITY</h2>
+            <p className="text-xs text-teal-400 font-semibold uppercase">{session.college_name || student.college || 'SASCMA STERS'}</p>
             <p className="text-xs text-slate-400 mt-0.5">{session.course || 'Bachelor of Science'} • {session.semester || 'Semester 1'} ({session.academic_year || '2025-2026'})</p>
           </div>
 
@@ -69,15 +75,15 @@ export const MarksheetModal = ({ data, onClose }) => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-slate-800/40 border border-slate-800 text-xs">
             <div>
               <span className="text-slate-400 block text-[11px]">Seat Number</span>
-              <strong className="text-white font-mono text-sm">{student.seat_no}</strong>
+              <strong className="font-mono text-sm">{student.seat_no}</strong>
             </div>
             <div>
               <span className="text-slate-400 block text-[11px]">SPID</span>
-              <strong className="text-white font-mono">{student.sp_id || 'N/A'}</strong>
+              <strong className="font-mono">{student.sp_id || 'N/A'}</strong>
             </div>
             <div className="col-span-2">
               <span className="text-slate-400 block text-[11px]">Candidate Name</span>
-              <strong className="text-white text-sm">{student.name}</strong>
+              <strong className="text-sm">{student.name}</strong>
             </div>
           </div>
 
@@ -99,10 +105,10 @@ export const MarksheetModal = ({ data, onClose }) => {
                 {subjects.map((sub, idx) => (
                   <tr key={idx} className="hover:bg-slate-800/20">
                     <td className="p-2.5 text-slate-400">{idx + 1}</td>
-                    <td className="p-2.5 text-white font-semibold">{sub.subject_name}</td>
+                    <td className="p-2.5 font-semibold">{sub.subject_name}</td>
                     <td className="p-2.5 text-center text-slate-300">{sub.int_mark}</td>
                     <td className="p-2.5 text-center text-slate-300">{sub.ext_mark}</td>
-                    <td className="p-2.5 text-center text-white font-bold">{sub.total_mark}</td>
+                    <td className="p-2.5 text-center font-bold">{sub.total_mark}</td>
                     <td className="p-2.5 text-center font-bold text-teal-400">{sub.grade}</td>
                     <td className="p-2.5 text-center">
                       <span className={`status-badge ${sub.status === 'PASS' ? 'status-pass' : 'status-fail'}`}>
@@ -119,7 +125,7 @@ export const MarksheetModal = ({ data, onClose }) => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/60">
               <span className="text-[11px] text-slate-400 uppercase">Total Marks</span>
-              <p className="text-base font-extrabold text-white mt-0.5">{student.total_marks} / 700</p>
+              <p className="text-base font-extrabold mt-0.5">{student.total_marks} / 700</p>
             </div>
             <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/60">
               <span className="text-[11px] text-slate-400 uppercase">Percentage</span>

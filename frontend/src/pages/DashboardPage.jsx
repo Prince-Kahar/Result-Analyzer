@@ -4,6 +4,7 @@ import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
 import { StatCard } from '../components/StatCard';
 import { EmptyState } from '../components/EmptyState';
+import { ResultShareModal } from '../components/ResultShareModal';
 import {
   Users,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   Building2,
   FileSpreadsheet,
   UploadCloud,
+  Share2,
   RefreshCw
 } from 'lucide-react';
 import {
@@ -45,6 +47,7 @@ export const DashboardPage = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedCollege, setSelectedCollege] = useState('ALL');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const { activeSessionId, setActiveSessionId, sessions, hasUploaded } = useSession();
   const navigate = useNavigate();
@@ -155,6 +158,16 @@ export const DashboardPage = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs rounded-xl shadow-sm transition-all"
+            title="Faculty WhatsApp Summary"
+          >
+            <Share2 size={16} />
+            <span className="hidden sm:inline">WhatsApp Summary</span>
+          </button>
+
           <button
             type="button"
             onClick={fetchDashboard}
@@ -268,6 +281,13 @@ export const DashboardPage = () => {
           </div>
         </div>
       </div>
+      <ResultShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        stats={stats}
+        session={data?.session || {}}
+        college={selectedCollege}
+      />
     </div>
   );
 };
