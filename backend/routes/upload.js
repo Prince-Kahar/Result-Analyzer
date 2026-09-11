@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabase } from '../config/supabase.js';
 import { parsePdfWithWorker } from '../services/pdfParserService.js';
+import { uploadFileToS3 } from '../services/s3Service.js';
 import { requireAuth, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -32,7 +33,15 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       throw new Error('No student records could be extracted from this PDF format. Please ensure it is a valid VNSGU examination gazette.');
     }
 
-    // 2. Insert into import_sessions (with fallback synthetic sessionId matching original system)
+    // 2. Optional: Archive raw PDF to S3 if bucket is configured (Antideploy cloud storage)
+    let s3Archive = null;
+    try {
+      s3Archive = await uploadFileToS3(filePath, originalName);
+    } catch (s3Err) {
+      console.warn('S3 archive warning (non-fatal):', s3Err.message);
+    }
+
+    // 3. Insert into import_sessions (with fallback synthetic sessionId matching original system)
     let sessionId = Math.floor(Date.now() / 1000);
     const userId = req.user?.id || null;
 
@@ -60,7 +69,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       console.warn('Supabase import_sessions fallback:', e.message);
     }
 
-    // 3. Insert Students in chunks of 50
+    // 4. Insert Students in chunks of 50
     const chunkSize = 50;
     let insertedStudentsCount = 0;
 
@@ -88,7 +97,6 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
 
       if (stdErr) {
         console.error('Students insert error chunk:', stdErr);
-        // Fallback: retry without created_by if column issue
         const cleanChunk = chunk.map(c => {
           const copy = { ...c };
           delete copy.created_by;
@@ -108,7 +116,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
         insertedStudentsCount += (insertedStudents || []).length;
       }
 
-      // 4. Insert Subject Marks for this chunk
+      // 5. Insert Subject Marks for this chunk
       const currentInserted = insertedStudents || [];
       const marksToInsert = [];
       const studentIdMap = new Map(currentInserted.map(s => [String(s.seat_no), s.id]));
@@ -150,13 +158,14 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
       }
     }
 
-    // Clean up temporary upload file
+    // Clean up temporary local upload file
     try { fs.unlinkSync(filePath); } catch (_) {}
 
     res.json({
       success: true,
       message: `Successfully parsed and imported ${insertedStudentsCount} student records`,
       session_id: sessionId,
+      archived_s3: !!s3Archive,
       details: {
         filename: originalName,
         course,
