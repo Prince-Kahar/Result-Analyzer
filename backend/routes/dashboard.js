@@ -1,41 +1,18 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { optionalAuth } from '../middleware/authMiddleware.js';
+import { getEffectiveSessionId } from '../utils/sessionHelper.js';
 
 const router = express.Router();
 
 // GET /api/dashboard
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { session_id, college } = req.query;
+    const { college } = req.query;
     const userId = req.user?.id;
+    const activeSessionId = await getEffectiveSessionId(req);
 
-    // Fetch active session or latest
-    let activeSessionId = session_id;
-    if (!activeSessionId) {
-      try {
-        let sessQuery = supabase.from('import_sessions').select('id, course, semester, academic_year, college_name').order('id', { ascending: false }).limit(1);
-        if (userId) sessQuery = sessQuery.eq('created_by', userId);
-        const { data: latestSession } = await sessQuery.maybeSingle();
-        if (latestSession) {
-          activeSessionId = latestSession.id;
-        }
-      } catch (_) {}
-    }
-
-    // Fallback: check students table if import_sessions is empty or has permissions issues
-    if (!activeSessionId) {
-      try {
-        let stdSessQuery = supabase.from('students').select('session_id').order('id', { ascending: false }).limit(1);
-        if (userId) stdSessQuery = stdSessQuery.eq('created_by', userId);
-        const { data: stdRow } = await stdSessQuery.maybeSingle();
-        if (stdRow && stdRow.session_id) {
-          activeSessionId = stdRow.session_id;
-        }
-      } catch (_) {}
-    }
-
-    // Sessions list
+    // Fetch user/accessible sessions list
     let sessions = [];
     try {
       let allSessQuery = supabase.from('import_sessions').select('*').order('id', { ascending: false });
@@ -46,7 +23,7 @@ router.get('/', optionalAuth, async (req, res) => {
       }
     } catch (_) {}
 
-    // If import_sessions is empty, build sessions list from distinct session_id in students
+    // If import_sessions is empty or restricted, look up distinct sessions in students
     if (!sessions || sessions.length === 0) {
       try {
         let q = supabase.from('students').select('session_id, college').order('id', { ascending: false }).limit(200);
@@ -70,9 +47,11 @@ router.get('/', optionalAuth, async (req, res) => {
       } catch (_) {}
     }
 
+    // If no active session requested, return clean empty stats
     if (!activeSessionId) {
       return res.json({
         success: true,
+        session_id: null,
         stats: {
           total: 0, appeared: 0, passed: 0, failed: 0, atkt: 0,
           pass_percentage: 0, avg_sgpa: 0, colleges_count: 0
@@ -84,7 +63,7 @@ router.get('/', optionalAuth, async (req, res) => {
       });
     }
 
-    // Fetch students for this active session
+    // Fetch students strictly for this active session
     let stdQuery = supabase
       .from('students')
       .select('id, seat_no, name, college, total_marks, percentage, sgpa, overall_grade, overall_status, gender, atkt_count')

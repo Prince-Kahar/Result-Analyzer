@@ -6,6 +6,7 @@ export const removeAuthToken = () => localStorage.removeItem('vnsgu_auth_token')
 
 const request = async (endpoint, options = {}) => {
   const token = getAuthToken();
+  const activeSessionId = localStorage.getItem('vnsgu_active_session');
   const headers = {
     ...(options.headers || {})
   };
@@ -16,6 +17,10 @@ const request = async (endpoint, options = {}) => {
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  if (activeSessionId) {
+    headers['X-Session-Id'] = activeSessionId;
   }
 
   const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -41,7 +46,7 @@ export const api = {
 
   // Dashboard & Sessions
   getDashboard: (params = '') => request(`/dashboard?${params}`),
-  getSessions: () => request('/sessions'),
+  getSessions: () => request('/dashboard/sessions'),
   deleteSession: (id) => request(`/sessions/${id}`, { method: 'DELETE' }),
 
   // Students & Lookup

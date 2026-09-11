@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
@@ -9,6 +9,7 @@ export const LoginPage = () => {
   const { login, register } = useAuth();
   const { hasUploaded, refreshSessions } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [tab, setTab] = useState('login'); // 'login' | 'register' | 'forgot'
   const [loading, setLoading] = useState(false);
@@ -39,7 +40,11 @@ export const LoginPage = () => {
       await login(loginUsername, loginPassword);
       await refreshSessions();
       // Flow enforcement: if no PDF uploaded, go to /upload, else /dashboard
-      if (!hasUploaded) {
+      const searchParams = new URLSearchParams(location.search);
+      const redirectUrl = searchParams.get('redirect');
+      if (redirectUrl) {
+        navigate(redirectUrl);
+      } else if (!hasUploaded) {
         navigate('/upload');
       } else {
         navigate('/dashboard');

@@ -127,17 +127,19 @@ export const DashboardPage = () => {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 glass-panel">
         <div className="flex flex-wrap items-center gap-3">
           {/* Session Selector */}
-          <select
-            value={activeSessionId}
-            onChange={(e) => setActiveSessionId(e.target.value)}
-            className="px-3 py-2 text-xs font-semibold bg-slate-800/80 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
-          >
-            {sessions.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.course} - {s.semester} ({s.academic_year || 'Active Batch'})
-              </option>
-            ))}
-          </select>
+          {sessions && sessions.length > 1 && (
+            <select
+              value={activeSessionId}
+              onChange={(e) => setActiveSessionId(e.target.value)}
+              className="px-3 py-2 text-xs font-semibold bg-slate-800/80 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+            >
+              {sessions.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.course} - {s.semester}
+                </option>
+              ))}
+            </select>
+          )}
 
           {/* College Filter */}
           <select
