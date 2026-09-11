@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 export const parsePdfWithWorker = (pdfPath) => {
   return new Promise((resolve, reject) => {
     const workerScript = path.join(__dirname, 'parser_worker.py');
-    const pyProcess = spawn('python', [workerScript, pdfPath]);
+    const pyCmd = process.platform === 'win32' ? 'python' : (process.env.PYTHON_BIN || 'python3');
+    const pyProcess = spawn(pyCmd, [workerScript, pdfPath]);
 
     let outputData = '';
     let errorData = '';

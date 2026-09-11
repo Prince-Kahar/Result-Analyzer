@@ -8,10 +8,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const systemPort = process.env.PORT;
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = systemPort || process.env.PORT || 5050;
 
 // CORS configuration
 app.use(cors({
@@ -111,7 +112,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: err.message || 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`==================================================`);
   console.log(`🎓 VNSGU Result Analyzer Backend Server Running`);
   console.log(`🚀 Port: ${PORT}`);
