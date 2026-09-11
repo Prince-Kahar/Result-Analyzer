@@ -96,8 +96,15 @@ app.get('/api/health', (req, res) => {
 // Global error handler
 
 // Serve production singlefile frontend
-const frontendDist = path.join(__dirname, '../frontend/dist');
-if (fs.existsSync(frontendDist)) {
+const candidateDistDirs = [
+  path.join(__dirname, 'public'),
+  path.join(__dirname, '../frontend/dist'),
+  path.join(__dirname, 'dist')
+];
+const frontendDist = candidateDistDirs.find(d => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+
+if (frontendDist) {
+  console.log('Serving frontend from:', frontendDist);
   app.use(express.static(frontendDist));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/assets')) {
@@ -105,6 +112,8 @@ if (fs.existsSync(frontendDist)) {
     }
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
+} else {
+  console.warn('Frontend dist directory not found. Candidates:', candidateDistDirs);
 }
 
 app.use((err, req, res, next) => {
