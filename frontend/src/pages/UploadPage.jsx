@@ -3,25 +3,58 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
-import { UploadCloud, CheckCircle2, AlertCircle, ArrowRight, UserCheck, LogIn, FileText } from 'lucide-react';
+import {
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRight,
+  UserCheck,
+  LogIn,
+  FileText,
+  Smartphone,
+  ExternalLink,
+  Copy,
+  Check
+} from 'lucide-react';
 
 export const UploadPage = () => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [copiedLiveUrl, setCopiedLiveUrl] = useState(false);
 
   const { isAuthenticated, user } = useAuth();
   const { setActiveSessionId, refreshSessions } = useSession();
   const navigate = useNavigate();
 
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const liveCloudUrl = 'https://student-result-analyzer.antideploy.com/upload';
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
       setError('');
       setResult(null);
+      setUploadProgress(0);
     }
+  };
+
+  const copyLiveUrl = () => {
+    navigator.clipboard.writeText(liveCloudUrl);
+    setCopiedLiveUrl(true);
+    setTimeout(() => setCopiedLiveUrl(false), 2000);
   };
 
   const handleUpload = async (e) => {
@@ -29,21 +62,29 @@ export const UploadPage = () => {
     if (!file) return setError('Please select a VNSGU Result PDF file');
 
     setUploading(true);
-    setProgressText('Uploading and analyzing marksheet coordinates with dual-engine parser...');
+    setUploadProgress(0);
+    setProgressText('Preparing examination PDF...');
     setError('');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await api.uploadPdf(formData);
+      const res = await api.uploadPdf(formData, (percent, loaded, total) => {
+        setUploadProgress(percent);
+        if (percent < 100) {
+          setProgressText(`Uploading: ${percent}% (${formatFileSize(loaded)} / ${formatFileSize(total)})`);
+        } else {
+          setProgressText('Processing marksheet coordinates & extracting students on server...');
+        }
+      });
+
       if (res.success) {
         setResult(res);
         if (res.session_id) {
           setActiveSessionId(res.session_id);
           await refreshSessions();
         }
-        // Auto-redirect to dashboard after brief celebration
         setTimeout(() => {
           navigate('/dashboard');
         }, 1500);
@@ -51,7 +92,8 @@ export const UploadPage = () => {
         throw new Error(res.message);
       }
     } catch (err) {
-      setError(err.message || 'Failed to upload and parse PDF');
+      console.error('Upload Error:', err);
+      setError(err.message || 'Failed to upload and parse PDF. Please check network connection.');
     } finally {
       setUploading(false);
     }
@@ -59,6 +101,42 @@ export const UploadPage = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 py-4">
+      {/* Mobile Cloud Notice (Only visible when user is testing on local machine) */}
+      {isLocalhost && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-teal-950/50 via-slate-900 to-slate-900 border border-teal-500/30 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-teal-300">
+            <div className="p-2 rounded-xl bg-teal-500/20 text-teal-300 flex-shrink-0">
+              <Smartphone size={18} />
+            </div>
+            <div>
+              <p className="font-bold text-white leading-tight">Using on your Mobile Phone?</p>
+              <p className="text-[11px] text-slate-300 mt-0.5">
+                On your phone, open the live cloud website instead of localhost for 1-click uploads!
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={copyLiveUrl}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg border border-slate-700 transition-colors"
+            >
+              {copiedLiveUrl ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>{copiedLiveUrl ? 'Copied!' : 'Copy Link'}</span>
+            </button>
+            <a
+              href={liveCloudUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-lg transition-colors"
+            >
+              <span>Live Cloud</span>
+              <ExternalLink size={13} />
+            </a>
+          </div>
+        </div>
+      )}
+
       <div className="text-center space-y-1">
         <h2 className="text-2xl font-bold text-white">Upload VNSGU Examination PDF</h2>
         <p className="text-xs sm:text-sm text-slate-400">
@@ -95,7 +173,7 @@ export const UploadPage = () => {
           <div className="border-2 border-dashed border-slate-700/80 hover:border-teal-500/60 rounded-2xl p-8 text-center transition-colors bg-slate-900/30">
             <input
               type="file"
-              accept=".pdf"
+              accept=".pdf,application/pdf"
               id="file-upload"
               onChange={handleFileChange}
               className="hidden"
@@ -106,24 +184,53 @@ export const UploadPage = () => {
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-bold text-white">
-                  {file ? file.name : 'Click to select or drag & drop VNSGU PDF'}
+                  {file ? file.name : 'Tap to choose or drag & drop VNSGU PDF'}
                 </p>
-                <p className="text-xs text-slate-400">Supported format: .pdf (Official Gazette up to 50MB)</p>
+                <p className="text-xs text-slate-400">
+                  {file ? `File selected: ${formatFileSize(file.size)}` : 'Supported format: .pdf (Official Gazette up to 50MB)'}
+                </p>
               </div>
             </label>
           </div>
 
-          {error && (
-            <div className="flex items-center gap-2 p-3 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300 rounded-xl">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              <span>{error}</span>
+          {/* Real-time Progress Bar */}
+          {uploading && (
+            <div className="space-y-2 p-4 rounded-xl bg-slate-800/50 border border-slate-700/60">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-teal-400">{progressText}</span>
+                <span className="font-mono text-slate-300 font-bold">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                <div
+                  className="bg-gradient-to-r from-teal-500 to-emerald-400 h-2.5 rounded-full transition-all duration-200"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
             </div>
           )}
 
-          {uploading && (
-            <div className="space-y-2 p-4 rounded-xl bg-slate-800/40 border border-slate-800 text-center">
-              <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              <p className="text-xs font-semibold text-teal-400">{progressText}</p>
+          {error && (
+            <div className="flex flex-col gap-2 p-3.5 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300 rounded-xl">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <p className="font-bold">Upload Failed</p>
+                  <p className="mt-0.5">{error}</p>
+                </div>
+              </div>
+              {isLocalhost && (
+                <div className="pt-2 border-t border-rose-500/20 flex items-center justify-between">
+                  <span className="text-[11px] text-rose-200">Tip: If testing on mobile, use live cloud address:</span>
+                  <a
+                    href={liveCloudUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-bold underline text-white hover:text-teal-200"
+                  >
+                    Open Live Cloud Site
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
@@ -133,7 +240,7 @@ export const UploadPage = () => {
             className="w-full py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <FileText size={16} />
-            <span>{uploading ? 'Analyzing Marksheet...' : 'Parse & Analyze Result'}</span>
+            <span>{uploading ? 'Processing Marksheet...' : 'Parse & Analyze Result'}</span>
           </button>
         </form>
 
