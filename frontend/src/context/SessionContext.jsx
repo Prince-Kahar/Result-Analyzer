@@ -20,8 +20,12 @@ export const SessionProvider = ({ children }) => {
         // Only keep active session if the user explicitly uploaded/set it and it still exists
         if (storedId && res.sessions.some(s => String(s.id) === String(storedId))) {
           setActiveSessionIdState(storedId);
+        } else if (res.sessions.length > 0) {
+          // Auto-select latest active session so candidate records and colleges are instantly visible across all devices
+          const defaultId = String(res.sessions[0].id);
+          setActiveSessionIdState(defaultId);
+          localStorage.setItem('vnsgu_active_session', defaultId);
         } else {
-          // Do NOT auto-pick old historical sessions. Must remain empty until PDF is uploaded.
           setActiveSessionIdState('');
           localStorage.removeItem('vnsgu_active_session');
         }
