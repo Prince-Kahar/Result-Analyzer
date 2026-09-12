@@ -9,7 +9,6 @@ import { optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Configure multer storage ensuring uploads directory exists
 const uploadDir = 'uploads/';
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -17,22 +16,14 @@ if (!fs.existsSync(uploadDir)) {
 
 const upload = multer({
   dest: uploadDir,
-  limits: { fileSize: 100 * 1024 * 1024 } // up to 100 MB
+  limits: { fileSize: 100 * 1024 * 1024 }
 });
 
-// POST /api/upload - Accepts optionalAuth so upload never hard-fails due to missing/expired token
-router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No PDF file was provided. Please select a valid file.' });
-  }
-
-  const filePath = req.file.path;
-  const originalName = req.file.originalname || 'Examination_Gazette.pdf';
-
-  console.log(`Received upload: ${originalName} (${req.file.size} bytes), user: ${req.user?.username || 'Guest Faculty'}`);
+// Shared processor for all upload pathways
+async function processUploadedPdf(filePath, originalName, user, res) {
+  console.log(`Received upload: ${originalName}, user: ${user?.username || 'Guest Faculty'}`);
 
   try {
-    // 1. Parse PDF using Dual-Engine parser
     const parsedData = await parsePdfWithWorker(filePath);
 
     if (!parsedData.success) {
@@ -45,7 +36,6 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
       throw new Error('No student records could be extracted from this PDF format. Please ensure it is an official VNSGU examination gazette.');
     }
 
-    // 2. Archive raw PDF to S3 if configured
     let s3Archive = null;
     try {
       s3Archive = await uploadFileToS3(filePath, originalName);
@@ -53,9 +43,8 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
       console.warn('S3 archive warning (non-fatal):', s3Err.message);
     }
 
-    // 3. Create or register import session
     let sessionId = Math.floor(Date.now() / 1000);
-    const userId = req.user?.id || null;
+    const userId = user?.id || null;
 
     try {
       const { data: sessionData, error: sessionErr } = await supabase
@@ -79,7 +68,6 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
       console.warn('Supabase import_sessions fallback:', e.message);
     }
 
-    // 4. Batch insert students
     const chunkSize = 50;
     let insertedStudentsCount = 0;
 
@@ -123,7 +111,6 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
         insertedStudentsCount += (insertedStudents || []).length;
       }
 
-      // 5. Batch insert Subject Marks
       const currentInserted = insertedStudents || [];
       const marksToInsert = [];
       const studentIdMap = new Map(currentInserted.map(s => [String(s.seat_no), s.id]));
@@ -164,10 +151,9 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
       }
     }
 
-    // Clean up temporary local upload file
-    try { fs.unlinkSync(filePath); } catch (_) {}
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
 
-    res.json({
+    return res.json({
       success: true,
       message: `Successfully parsed and imported ${insertedStudentsCount || students.length} student records`,
       session_id: sessionId,
@@ -185,8 +171,44 @@ router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
   } catch (err) {
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
     console.error('Upload Error:', err);
-    res.status(500).json({ success: false, message: 'Upload & parse failed: ' + err.message });
+    return res.status(500).json({ success: false, message: 'Upload & parse failed: ' + err.message });
   }
+}
+
+// 1. Primary: Standard multipart form-data upload
+router.post('/', optionalAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No PDF file was provided. Please select a valid file.' });
+  }
+  await processUploadedPdf(req.file.path, req.file.originalname || 'Examination_Gazette.pdf', req.user, res);
+});
+
+// 2. Fallback: Raw binary octet-stream upload (Ultra-reliable for mobile browsers)
+router.post('/raw', optionalAuth, express.raw({ type: ['application/pdf', 'application/octet-stream', '*/*'], limit: '100mb' }), async (req, res) => {
+  if (!req.body || req.body.length === 0) {
+    return res.status(400).json({ success: false, message: 'No binary PDF data received.' });
+  }
+
+  const rawFilename = req.headers['x-filename'] ? decodeURIComponent(req.headers['x-filename']) : 'Mobile_Upload.pdf';
+  const tempPath = path.join(uploadDir, `raw_${Date.now()}_${path.basename(rawFilename)}`);
+
+  fs.writeFileSync(tempPath, req.body);
+  await processUploadedPdf(tempPath, rawFilename, req.user, res);
+});
+
+// 3. Fallback: Base64 JSON upload
+router.post('/base64', optionalAuth, express.json({ limit: '100mb' }), async (req, res) => {
+  const { filename, base64 } = req.body || {};
+  if (!base64) {
+    return res.status(400).json({ success: false, message: 'No base64 data received.' });
+  }
+
+  const cleanBase64 = base64.replace(/^data:application\/pdf;base64,/, '');
+  const buffer = Buffer.from(cleanBase64, 'base64');
+  const tempPath = path.join(uploadDir, `b64_${Date.now()}_${path.basename(filename || 'Mobile.pdf')}`);
+
+  fs.writeFileSync(tempPath, buffer);
+  await processUploadedPdf(tempPath, filename || 'Mobile_Upload.pdf', req.user, res);
 });
 
 // POST /api/upload/clear-sessions

@@ -79,63 +79,153 @@ export const api = {
   getCollegesStats: (params = '') => request(`/colleges/stats?${params}`),
 
   // Upload - Robust Mobile & Desktop Upload with Progress tracking via XHR
-  uploadPdf: (formData, onProgress) => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const token = getAuthToken();
-      const activeSessionId = localStorage.getItem('vnsgu_active_session');
-
-      xhr.open('POST', `${API_BASE}/upload`, true);
-
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  uploadPdf: async (file, onProgress) => {
+    // Helper to convert ArrayBuffer to Base64
+    const bufferToBase64 = (buffer) => {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
       }
-      if (activeSessionId && activeSessionId !== 'undefined' && activeSessionId !== 'null') {
-        xhr.setRequestHeader('X-Session-Id', String(activeSessionId));
+      return window.btoa(binary);
+    };
+
+    const token = getAuthToken();
+    const activeSessionId = localStorage.getItem('vnsgu_active_session');
+
+    // 1. Verify and read file into memory (guards against revoked mobile storage URIs)
+    let fileBuffer;
+    try {
+      fileBuffer = await file.arrayBuffer();
+      if (!fileBuffer || fileBuffer.byteLength === 0) {
+        throw new Error('Selected file is empty (0 bytes). Please choose the file again from your Downloads folder.');
       }
+    } catch (readErr) {
+      throw new Error('Could not access selected file on device: ' + readErr.message);
+    }
 
-      xhr.timeout = 180000; // 3 min timeout
+    // LAYER 1: Standard Multipart Form-Data with XHR Progress
+    const tryMultipartXHR = () => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        const blob = new Blob([fileBuffer], { type: 'application/pdf' });
+        formData.append('file', blob, file.name || 'Examination_Gazette.pdf');
 
-      if (xhr.upload && onProgress) {
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            onProgress(percent, event.loaded, event.total);
+        xhr.open('POST', `${API_BASE}/upload`, true);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        if (activeSessionId && activeSessionId !== 'undefined' && activeSessionId !== 'null') {
+          xhr.setRequestHeader('X-Session-Id', String(activeSessionId));
+        }
+
+        xhr.timeout = 180000;
+
+        if (xhr.upload && onProgress) {
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              onProgress(percent, event.loaded, event.total);
+            }
+          };
+        }
+
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) { data = {}; }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(data.message || `Upload status ${xhr.status}`));
           }
         };
+
+        xhr.onerror = () => {
+          reject(new Error('NETWORK_ERROR'));
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error('TIMEOUT'));
+        };
+
+        xhr.send(formData);
+      });
+    };
+
+    // LAYER 2: Raw Binary Direct Upload (Bypasses multipart headers completely)
+    const tryRawBinary = async () => {
+      const headers = {
+        'Content-Type': 'application/pdf',
+        'X-Filename': encodeURIComponent(file.name || 'Examination.pdf')
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeSessionId && activeSessionId !== 'undefined' && activeSessionId !== 'null') {
+        headers['X-Session-Id'] = String(activeSessionId);
       }
 
-      xhr.onload = () => {
-        let data = {};
+      const res = await fetch(`${API_BASE}/upload/raw`, {
+        method: 'POST',
+        headers,
+        body: fileBuffer
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Raw upload status ${res.status}`);
+      }
+      return data;
+    };
+
+    // LAYER 3: Base64 JSON Upload (Guaranteed fallback for restricted mobile webviews)
+    const tryBase64 = async () => {
+      const base64 = bufferToBase64(fileBuffer);
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeSessionId && activeSessionId !== 'undefined' && activeSessionId !== 'null') {
+        headers['X-Session-Id'] = String(activeSessionId);
+      }
+
+      const res = await fetch(`${API_BASE}/upload/base64`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          filename: file.name || 'Examination.pdf',
+          base64: 'data:application/pdf;base64,' + base64
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Base64 upload status ${res.status}`);
+      }
+      return data;
+    };
+
+    // Execute tiered fallback
+    try {
+      return await tryMultipartXHR();
+    } catch (err1) {
+      console.warn('Multipart upload failed, attempting raw binary fallback:', err1.message);
+      if (onProgress) onProgress(50, fileBuffer.byteLength / 2, fileBuffer.byteLength);
+
+      try {
+        return await tryRawBinary();
+      } catch (err2) {
+        console.warn('Raw binary upload failed, attempting Base64 fallback:', err2.message);
+        if (onProgress) onProgress(80, fileBuffer.byteLength, fileBuffer.byteLength);
+
         try {
-          data = JSON.parse(xhr.responseText || '{}');
-        } catch (e) {
-          data = {};
+          return await tryBase64();
+        } catch (err3) {
+          console.error('All 3 upload mechanisms failed:', err3);
+          const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.') || window.location.hostname.startsWith('10.'));
+          if (isLocal) {
+            throw new Error('Network error: You are on local IP. On mobile, please use the live cloud address: https://student-result-analyzer.antideploy.com');
+          }
+          throw new Error('Upload failed across all transmission modes. Error: ' + err3.message);
         }
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(data);
-        } else {
-          const errMsg = data.message || `Upload failed with server status ${xhr.status}`;
-          reject(new Error(errMsg));
-        }
-      };
-
-      xhr.onerror = () => {
-        const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-        if (isLocal) {
-          reject(new Error('Network error: You are accessing localhost from mobile. Please use the live cloud URL: https://student-result-analyzer.antideploy.com'));
-        } else {
-          reject(new Error('Network connection failed. Please check your mobile internet connection and try again.'));
-        }
-      };
-
-      xhr.ontimeout = () => {
-        reject(new Error('Upload request timed out after 3 minutes. The server is still processing your PDF, please check the dashboard.'));
-      };
-
-      xhr.send(formData);
-    });
+      }
+    }
   },
 
   clearSessions: () => request('/upload/clear-sessions', { method: 'POST' }),

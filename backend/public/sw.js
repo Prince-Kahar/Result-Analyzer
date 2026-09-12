@@ -1,7 +1,6 @@
-// Service Worker for SASCMA STERS Result Analyzer PWA (Desktop + Mobile)
-const CACHE_NAME = 'sascma-vnsgu-v2';
+// Service Worker for SASCMA STERS Result Analyzer PWA (v4)
+const CACHE_NAME = 'sascma-vnsgu-v4';
 const PRECACHE_ASSETS = [
-  '/',
   '/assets/logo.png',
   '/assets/vnsgu.png',
   '/manifest.webmanifest'
@@ -33,12 +32,18 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+
+  // NEVER touch API requests in Service Worker
+  if (req.url.includes('/api/')) {
+    return;
+  }
+
   if (req.method !== 'GET') return;
 
-  // SPA navigation fallback: when offline or reloading standalone window, serve root app shell
+  // SPA navigation: Always fetch fresh from network, never stale cache
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/') || caches.match('/index.html'))
+      fetch(req).catch(() => caches.match('/index.html'))
     );
     return;
   }

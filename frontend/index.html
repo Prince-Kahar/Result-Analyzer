@@ -46,11 +46,26 @@
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
   
-  <!-- PWA Service Worker Registration -->
+  <!-- PWA Service Worker Registration with Auto-Update & Cache Busting -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          reg.update().catch(() => {});
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                  console.log('New version of Result Analyzer activated, refreshing...');
+                  window.location.reload();
+                }
+              });
+            }
+          });
+        }).catch((err) => {
+          console.warn('SW registration:', err);
+        });
       });
     }
   </script>
