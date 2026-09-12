@@ -1,3 +1,4 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { ShieldCheck, Search, CheckCircle2, XCircle, QrCode, FileText } from 'lucide-react';
@@ -104,7 +105,7 @@ export const VerifyPage = () => {
 
           <div className="space-y-4">
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Candidate Name</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Student Name</span>
               <h3 className="text-xl font-black text-white">{result.student.name}</h3>
               <p className="text-xs text-teal-400 font-semibold">{result.student.college}</p>
             </div>

@@ -1,3 +1,4 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
@@ -34,7 +35,7 @@ export const FailedPage = () => {
   }, [activeSessionId]);
 
   const handleSendWarning = async (student) => {
-    const parentEmail = prompt(`Enter Guardian Email for ${student.name} (Seat ${student.seat_no}):`);
+    const parentEmail = prompt(`Enter Guardian Email for ${cleanStudentName(student.name)} (Seat ${student.seat_no}):`);
     if (!parentEmail) return;
 
     setDispatchStatus(prev => ({ ...prev, [student.id]: 'sending' }));
@@ -84,7 +85,7 @@ export const FailedPage = () => {
             <thead className="bg-slate-800/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
               <tr>
                 <th className="p-3">Seat No</th>
-                <th className="p-3">Candidate Name</th>
+                <th className="p-3">Student Name</th>
                 <th className="p-3">College</th>
                 <th className="p-3 text-center">Marks</th>
                 <th className="p-3 text-center">Backlogs (ATKT)</th>
@@ -96,7 +97,7 @@ export const FailedPage = () => {
               {failedStudents.map((std) => (
                 <tr key={std.id} className="hover:bg-slate-800/30 transition-colors">
                   <td className="p-3 font-mono font-bold text-white">{std.seat_no}</td>
-                  <td className="p-3 text-slate-200 font-bold">{std.name}</td>
+                  <td className="p-3 text-slate-200 font-bold">{cleanStudentName(std.name)}</td>
                   <td className="p-3 text-slate-400 max-w-[200px] truncate">{std.college}</td>
                   <td className="p-3 text-center font-bold text-white">{std.total_marks}</td>
                   <td className="p-3 text-center font-black text-rose-400">

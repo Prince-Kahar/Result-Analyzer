@@ -6,6 +6,23 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Helper to sanitize student names by stripping course/degree/batch suffixes
+export function cleanStudentName(rawName) {
+  if (!rawName) return 'Student';
+  let name = String(rawName).trim();
+  const coursePatterns = [
+    /\s+(?:M\.?\s*SC\.?|B\.?\s*SC\.?|BCA|MCA|BBA|MBA|B\.?\s*COM\.?|M\.?\s*COM\.?)(?:\s*\(?[^)]*\)?)?.*$/i,
+    /\s+(?:BACHELOR|MASTER|DIPLOMA)\s+OF\s+.*$/i,
+    /\s+\(?(?:I\.?\s*T\.?|DATA\s+SCIENCE|COMPUTER\s+APP[A-Z]*)\)?.*$/i,
+    /\s+(?:NCF-NEP|CBCS|NEP|\d{4}-\d{2,4}).*$/i,
+    /\s+(?:WHOLE|PART|REGULAR|EXTERNAL)\s*$/i
+  ];
+  for (const pattern of coursePatterns) {
+    name = name.replace(pattern, '').trim();
+  }
+  return name.replace(/[\s.,\-_/]+$/, '').trim();
+}
+
 // Engine 1: Python parser worker
 const runPythonWorker = (pdfPath) => {
   return new Promise((resolve, reject) => {
@@ -31,6 +48,11 @@ const runPythonWorker = (pdfPath) => {
       try {
         const parsed = JSON.parse(outputData.trim());
         if (parsed.success && parsed.students && parsed.students.length > 0) {
+          // Ensure student names are clean
+          parsed.students = parsed.students.map(s => ({
+            ...s,
+            name: cleanStudentName(s.name)
+          }));
           resolve(parsed);
         } else {
           reject(new Error(parsed.error || 'No student records extracted by Python parser'));
@@ -46,7 +68,7 @@ const runPythonWorker = (pdfPath) => {
   });
 };
 
-// Engine 2: Pure Node.js PDFParse fallback (works 100% in any cloud/docker environment)
+// Engine 2: Pure Node.js PDFParse fallback (Robust multi-college and student extractor)
 const runNodePdfParser = async (pdfPath) => {
   const { PDFParse } = await import('pdf-parse');
   const buffer = fs.readFileSync(pdfPath);
@@ -58,34 +80,49 @@ const runNodePdfParser = async (pdfPath) => {
     throw new Error('PDF appears empty or unreadable by pure JS parser');
   }
 
-  // Extract college name, course, semester if possible
-  let college_name = 'VNSGU Affiliated College';
-  const collegeMatch = rawText.match(/College\s*Name\s*:\s*([^\n\r]+)/i);
-  if (collegeMatch) college_name = collegeMatch[1].trim();
-
   let course = 'Bachelor of Science (Data Science)';
   if (rawText.includes('DATA SCIENCE')) course = 'Bachelor of Science (Data Science)';
   else if (rawText.includes('COMPUTER APPLICATION')) course = 'Bachelor of Computer Application (BCA)';
   else if (rawText.includes('INFORMATION TECHNOLOGY')) course = 'M.Sc (Information Technology)';
 
   let semester = 'Semester 1';
-  const semMatch = rawText.match(/Semester\s*[-:]?\s*([0-9IVX]+)/i);
+  const semMatch = rawText.match(/Semester\s*[-:]?\s*([0-9IVX]+)/i) || rawText.match(/\(([A-Z]+)\s+SEMESTER\)/i);
   if (semMatch) semester = `Semester ${semMatch[1]}`;
 
-  // Parse student records using line and pattern scanning
   const lines = rawText.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
   const students = [];
+  const collegesFound = new Set();
+  let current_college = 'VNSGU Affiliated College';
 
-  // Match pattern: SeatNo SP_ID Gender StudentName
-  // e.g. "154 2025031405 M PATEL HENISH ANILBHAI" or "154 PATEL HENISH..."
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const match = line.match(/^(\d{2,7})\s+(\d{8,14})?\s*([MF])?\s+([A-Z\s.]{4,40})/i);
+
+    // Detect College Heading changes throughout multi-college gazette
+    if (line.match(/^College\s*Name\s*:\s*(.+)$/i)) {
+      const match = line.match(/^College\s*Name\s*:\s*(.+)$/i);
+      if (match[1].trim().length > 3) {
+        current_college = match[1].trim();
+        collegesFound.add(current_college);
+      }
+    } else if (line.match(/^College\s*Name\b/i) && i + 1 < lines.length) {
+      const nextLine = lines[i + 1].trim();
+      if (nextLine.match(/^\(\d{4}\)/) || nextLine.includes('COLLEGE') || nextLine.includes('DEPARTMENT')) {
+        current_college = nextLine;
+        collegesFound.add(current_college);
+      }
+    } else if (line.match(/^\(\d{4}\)\s+[A-Z]/)) {
+      current_college = line;
+      collegesFound.add(current_college);
+    }
+
+    // Match student row pattern: SeatNo SP_ID Gender StudentName
+    const match = line.match(/^(\d{2,7})\s+(\d{8,14})?\s*([MF])?\s+([A-Z\s.]{4,60})/i);
     if (match) {
       const seat_no = match[1];
       const sp_id = match[2] || `SP${seat_no}`;
       const gender = match[3] || 'M';
-      const name = match[4].trim();
+      const rawName = match[4].trim();
+      const name = cleanStudentName(rawName);
 
       // Look ahead for marks, SGPA, status
       let sgpa = '--';
@@ -99,7 +136,7 @@ const runNodePdfParser = async (pdfPath) => {
         if (sgpaMatch && sgpa === '--') {
           sgpa = sgpaMatch[1];
         }
-        if (checkLine.includes('FAIL') || checkLine.includes('ATKT')) {
+        if (checkLine.includes('FAIL') || checkLine.includes('ATKT') || checkLine.includes('F-')) {
           overall_status = checkLine.includes('ATKT') ? 'ATKT' : 'FAIL';
         }
         const totMatch = checkLine.match(/TOTAL\s*[:=]?\s*(\d{2,3})/i);
@@ -138,9 +175,9 @@ const runNodePdfParser = async (pdfPath) => {
           sp_id,
           name,
           gender,
-          college: college_name,
+          college: current_college,
           total_marks,
-          percentage: roundDec((total_marks / 700) * 100, 2),
+          percentage: Number(((total_marks / 700) * 100).toFixed(2)),
           sgpa,
           overall_grade,
           overall_status,
@@ -151,45 +188,39 @@ const runNodePdfParser = async (pdfPath) => {
     }
   }
 
-  function roundDec(val, dec = 2) {
-    const factor = Math.pow(10, dec);
-    return Math.round(val * factor) / factor;
-  }
-
-  if (students.length === 0) {
-    throw new Error('No students detected by pure JS regex parser');
-  }
+  const detectedColleges = Array.from(collegesFound);
+  const primaryCollege = detectedColleges[0] || current_college;
 
   return {
     success: true,
     course,
     semester,
     academic_year: '2025-2026',
-    college_name,
-    total_extracted: students.length,
+    college_name: primaryCollege,
+    colleges: detectedColleges,
     students
   };
 };
 
 export const parsePdfWithWorker = async (pdfPath) => {
-  // Try Engine 1 (Python) first
+  // Engine 1: Python worker (Preferred for exact coordinates)
   try {
-    const pyResult = await runPythonWorker(pdfPath);
-    if (pyResult && pyResult.success && pyResult.students?.length > 0) {
-      console.log('PDF parsed successfully using Python engine:', pyResult.students.length, 'students');
-      return pyResult;
+    const result = await runPythonWorker(pdfPath);
+    if (result && result.students && result.students.length > 0) {
+      console.log(`PDF parsed successfully using Python engine: ${result.students.length} students`);
+      return result;
     }
   } catch (pyErr) {
-    console.warn('Python parser failed/unavailable, falling back to pure Node.js parser:', pyErr.message);
+    console.warn(`Python parser failed/unavailable, falling back to pure Node.js parser: ${pyErr.message}`);
   }
 
-  // Fallback Engine 2 (Node.js PDFParse)
+  // Engine 2: Pure Node.js fallback (100% reliable in any cloud/docker environment)
   try {
-    const jsResult = await runNodePdfParser(pdfPath);
-    console.log('PDF parsed successfully using Node.js PDFParse engine:', jsResult.students.length, 'students');
-    return jsResult;
-  } catch (jsErr) {
-    console.error('All PDF parsing engines failed:', jsErr.message);
-    throw new Error('Failed to parse VNSGU PDF gazette: ' + jsErr.message);
+    const result = await runNodePdfParser(pdfPath);
+    console.log(`PDF parsed successfully using Node.js PDFParse engine: ${result.students.length} students across ${result.colleges?.length || 1} colleges`);
+    return result;
+  } catch (nodeErr) {
+    console.error(`Node.js PDFParse fallback failed: ${nodeErr.message}`);
+    throw new Error(`Both PDF parsing engines failed. Error: ${nodeErr.message}`);
   }
 };

@@ -1,10 +1,15 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React from 'react';
 import { X, Printer, Share2, QrCode, ShieldCheck, Download } from 'lucide-react';
 
-export const MarksheetModal = ({ data, onClose }) => {
-  if (!data) return null;
+export const MarksheetModal = ({ data, studentData, onClose }) => {
+  const reportData = data || studentData;
+  if (!reportData) return null;
 
-  const { student, subjects = [], session = {}, verification_hash = 'VNSGU-AUTH-VERIFIED' } = data;
+  const student = reportData.student || {};
+  const subjects = reportData.subjects || [];
+  const session = reportData.session || {};
+  const verification_hash = reportData.verification_hash || 'VNSGU-AUTH-VERIFIED';
 
   const handlePrint = () => {
     window.print();
@@ -14,7 +19,7 @@ export const MarksheetModal = ({ data, onClose }) => {
     const text = encodeURIComponent(
       `🎓 *VNSGU Examination Grade Card*\n` +
       `🏛 *College:* ${student.college || session.college_name || 'VNSGU Affiliated'}\n` +
-      `👤 *Student:* ${student.name}\n` +
+      `👤 *Student:* ${cleanStudentName(student.name)}\n` +
       `🔢 *Seat No:* ${student.seat_no}\n` +
       `📊 *Marks:* ${student.total_marks} / 700 (${student.percentage}%)\n` +
       `⭐ *SGPA:* ${student.sgpa} (Grade: ${student.overall_grade})\n` +
@@ -82,8 +87,8 @@ export const MarksheetModal = ({ data, onClose }) => {
               <strong className="font-mono">{student.sp_id || 'N/A'}</strong>
             </div>
             <div className="col-span-2">
-              <span className="text-slate-400 block text-[11px]">Candidate Name</span>
-              <strong className="text-sm">{student.name}</strong>
+              <span className="text-slate-400 block text-[11px]">Student Name</span>
+              <strong className="text-sm">{cleanStudentName(student.name)}</strong>
             </div>
           </div>
 

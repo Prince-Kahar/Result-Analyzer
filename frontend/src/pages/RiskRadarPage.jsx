@@ -1,3 +1,4 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
@@ -96,7 +97,7 @@ export const RiskRadarPage = () => {
             <thead className="bg-slate-800/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
               <tr>
                 <th className="p-3">Seat No</th>
-                <th className="p-3">Candidate Name</th>
+                <th className="p-3">Student Name</th>
                 <th className="p-3">College</th>
                 <th className="p-3 text-center">Backlogs</th>
                 <th className="p-3 text-center">SGPA</th>

@@ -1,3 +1,4 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
@@ -96,7 +97,7 @@ export const ToppersPage = () => {
             <div className="flex items-start justify-between">
               <div className="space-y-1">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Rank #{top.rank}</span>
-                <h3 className="text-base font-extrabold text-white">{top.name}</h3>
+                <h3 className="text-base font-extrabold text-white">{cleanStudentName(top.name)}</h3>
                 <p className="text-xs text-slate-400 font-mono">Seat: {top.seat_no}</p>
               </div>
               {getRankBadge(top.rank)}
@@ -124,7 +125,7 @@ export const ToppersPage = () => {
               <tr>
                 <th className="p-3 text-center">Rank</th>
                 <th className="p-3">Seat No</th>
-                <th className="p-3">Candidate Name</th>
+                <th className="p-3">Student Name</th>
                 <th className="p-3">College</th>
                 <th className="p-3 text-center">Marks</th>
                 <th className="p-3 text-center">Percentage</th>
@@ -137,7 +138,7 @@ export const ToppersPage = () => {
                 <tr key={t.id} className="hover:bg-slate-800/30">
                   <td className="p-3 text-center">{getRankBadge(t.rank)}</td>
                   <td className="p-3 font-mono font-bold text-white">{t.seat_no}</td>
-                  <td className="p-3 text-slate-200 font-bold">{t.name}</td>
+                  <td className="p-3 text-slate-200 font-bold">{cleanStudentName(t.name)}</td>
                   <td className="p-3 text-slate-400">{t.college}</td>
                   <td className="p-3 text-center font-bold text-white">{t.total_marks}</td>
                   <td className="p-3 text-center font-black text-amber-400">{t.percentage}%</td>

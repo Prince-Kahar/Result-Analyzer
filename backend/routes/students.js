@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase.js';
 import { optionalAuth } from '../middleware/authMiddleware.js';
 import { getEffectiveSessionId } from '../utils/sessionHelper.js';
 import { sendParentWarningEmail } from '../services/emailService.js';
+import { cleanStudentName } from '../services/pdfParserService.js';
 
 const router = express.Router();
 
@@ -42,7 +43,7 @@ router.get('/', optionalAuth, async (req, res) => {
       total: count || 0,
       page: parseInt(page),
       limit: parseInt(limit),
-      students: students || []
+      students: (students || []).map(s => ({ ...s, name: cleanStudentName(s.name) }))
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -74,7 +75,7 @@ router.get('/top-n', optionalAuth, async (req, res) => {
 
     if (error) throw error;
 
-    const ranked = (toppers || []).map((t, idx) => ({ ...t, rank: idx + 1 }));
+    const ranked = (toppers || []).map((t, idx) => ({ ...t, rank: idx + 1, name: cleanStudentName(t.name) }));
     res.json({ success: true, toppers: ranked });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -124,6 +125,7 @@ router.get('/:id/report', optionalAuth, async (req, res) => {
     if (stdErr || !stdData) {
       return res.status(404).json({ success: false, message: 'Student record not found' });
     }
+    stdData.name = cleanStudentName(stdData.name);
 
     const { data: marks } = await supabase
       .from('subject_marks')

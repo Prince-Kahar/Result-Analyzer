@@ -1,3 +1,4 @@
+import { cleanStudentName } from '../utils/studentUtils';
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import { api } from '../services/api';
