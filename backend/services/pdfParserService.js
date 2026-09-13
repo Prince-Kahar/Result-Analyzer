@@ -68,6 +68,34 @@ const runPythonWorker = (pdfPath) => {
   });
 };
 
+
+export function parseResultSummaryFromText(rawText) {
+  if (!rawText) return null;
+  const summary = {};
+  const patterns = {
+    total_result: /TOTAL\s+RESULT\s*:\s*([\d.]+\s*%?)/i,
+    total_pass: /TOTAL\s+PASS\s*:\s*(\d+)/i,
+    fail: /FAIL\s*:\s*(\d+)/i,
+    absent: /ABSENT\s*:\s*(\d+)/i,
+    form_withdrawn: /FORM\s+WITHDRAWN\s*:\s*(\d+)/i,
+    reserved: /RESERVED\s*:\s*(\d+)/i,
+    withheld: /WITHHELD\s*:\s*(\d+)/i,
+    dlo: /D\.?\s*L\.?\s*O\.?\s*:\s*(\d+)/i,
+    cancelled: /CANCELLED\s*:\s*(\d+)/i,
+    wo_165: /W\.?\s*O\.?\s*165\s*:\s*(\d+)/i,
+    dlo_fec: /D\.?\s*L\.?\s*O\.?\s*FEC\s*:\s*(\d+)/i
+  };
+  let foundAny = false;
+  for (const [key, regex] of Object.entries(patterns)) {
+    const m = rawText.match(regex);
+    if (m) {
+      foundAny = true;
+      summary[key] = key === 'total_result' ? m[1].replace('%', '').trim() + ' %' : parseInt(m[1], 10);
+    }
+  }
+  return foundAny ? summary : null;
+}
+
 // Engine 2: Pure Node.js PDFParse fallback (Robust multi-college and student extractor)
 const runNodePdfParser = async (pdfPath) => {
   const { PDFParse } = await import('pdf-parse');
@@ -198,6 +226,7 @@ const runNodePdfParser = async (pdfPath) => {
     academic_year: '2025-2026',
     college_name: primaryCollege,
     colleges: detectedColleges,
+    result_summary: parseResultSummaryFromText(rawText),
     students
   };
 };

@@ -30,7 +30,22 @@ async function processUploadedPdf(filePath, originalName, user, res) {
       throw new Error(parsedData.error || 'Failed to parse VNSGU examination PDF');
     }
 
-    const { course, semester, academic_year, college_name, students } = parsedData;
+    const { course, semester, academic_year, college_name, students, result_summary } = parsedData;
+
+    // Persist Gazette Result Summary for instant Dashboard display
+    if (result_summary && Object.keys(result_summary).length > 0) {
+      try {
+        const summariesPath = path.join(process.cwd(), 'backend/data/session_summaries.json');
+        let allSummaries = {};
+        if (fs.existsSync(summariesPath)) {
+          allSummaries = JSON.parse(fs.readFileSync(summariesPath, 'utf8'));
+        }
+        allSummaries[sessionId] = result_summary;
+        fs.writeFileSync(summariesPath, JSON.stringify(allSummaries, null, 2));
+      } catch (err) {
+        console.warn('Failed to save session summary:', err.message);
+      }
+    }
 
     if (!students || students.length === 0) {
       throw new Error('No student records could be extracted from this PDF format. Please ensure it is an official VNSGU examination gazette.');

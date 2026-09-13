@@ -79,6 +79,107 @@ export const DashboardPage = () => {
     pass_percentage: 0, avg_sgpa: 0, colleges_count: 0
   };
 
+  const rawSummary = data?.result_summary || null;
+
+  // Compute Gazette Summary adhering strictly to the zero rule:
+  // TOTAL RESULT, TOTAL PASS, and FAIL always show (even if 0).
+  // All other fields (ABSENT, FORM WITHDRAWN, etc.) show ONLY if > 0.
+  const summaryList = React.useMemo(() => {
+    if (!rawSummary && !stats.total) return [];
+
+    const totalRes = rawSummary?.total_result 
+      ? String(rawSummary.total_result) 
+      : (stats.total > 0 ? `${stats.pass_percentage}%` : '0.00 %');
+    const passCount = rawSummary?.total_pass !== undefined ? rawSummary.total_pass : stats.passed;
+    const failCount = rawSummary?.fail !== undefined ? rawSummary.fail : (stats.failed + (stats.atkt || 0));
+
+    const candidates = [
+      {
+        key: 'total_result',
+        label: 'TOTAL RESULT',
+        value: totalRes.includes('%') ? totalRes : `${totalRes} %`,
+        alwaysShow: true,
+        color: 'text-teal-400'
+      },
+      {
+        key: 'total_pass',
+        label: 'TOTAL PASS',
+        value: String(passCount),
+        alwaysShow: true,
+        color: 'text-emerald-400'
+      },
+      {
+        key: 'fail',
+        label: 'FAIL',
+        value: String(failCount),
+        alwaysShow: true,
+        color: 'text-rose-400'
+      },
+      {
+        key: 'absent',
+        label: 'ABSENT',
+        value: String(rawSummary?.absent ?? 0),
+        alwaysShow: false,
+        color: 'text-amber-400'
+      },
+      {
+        key: 'form_withdrawn',
+        label: 'FORM WITHDRAWN',
+        value: String(rawSummary?.form_withdrawn ?? 0),
+        alwaysShow: false,
+        color: 'text-slate-300'
+      },
+      {
+        key: 'reserved',
+        label: 'RESERVED',
+        value: String(rawSummary?.reserved ?? 0),
+        alwaysShow: false,
+        color: 'text-purple-400'
+      },
+      {
+        key: 'withheld',
+        label: 'WITHHELD',
+        value: String(rawSummary?.withheld ?? 0),
+        alwaysShow: false,
+        color: 'text-orange-400'
+      },
+      {
+        key: 'dlo',
+        label: 'D.L.O.',
+        value: String(rawSummary?.dlo ?? 0),
+        alwaysShow: false,
+        color: 'text-yellow-400'
+      },
+      {
+        key: 'cancelled',
+        label: 'CANCELLED',
+        value: String(rawSummary?.cancelled ?? 0),
+        alwaysShow: false,
+        color: 'text-red-400'
+      },
+      {
+        key: 'wo_165',
+        label: 'W.O. 165',
+        value: String(rawSummary?.wo_165 ?? 0),
+        alwaysShow: false,
+        color: 'text-pink-400'
+      },
+      {
+        key: 'dlo_fec',
+        label: 'D.L.O FEC',
+        value: String(rawSummary?.dlo_fec ?? 0),
+        alwaysShow: false,
+        color: 'text-indigo-400'
+      }
+    ];
+
+    return candidates.filter(item => {
+      if (item.alwaysShow) return true;
+      const num = parseInt(item.value, 10);
+      return !isNaN(num) && num > 0;
+    });
+  }, [rawSummary, stats]);
+
   if (!loading && (!hasUploaded || stats.total === 0)) {
     return (
       <EmptyState
@@ -187,6 +288,75 @@ export const DashboardPage = () => {
           </button>
         </div>
       </div>
+
+      {/* Official Gazette Result Summary Section */}
+      {summaryList && summaryList.length > 0 && (
+        <div className="glass-panel p-5 sm:p-6 border border-slate-700/80 rounded-2xl shadow-xl bg-slate-900/70 relative overflow-hidden space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400">
+                <FileSpreadsheet size={18} />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                  Official Gazette Result Summary
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Extracted directly from the official VNSGU tabulation gazette
+                </p>
+              </div>
+            </div>
+            <div>
+              <span className="text-[11px] font-mono font-bold text-teal-400 bg-teal-950/60 border border-teal-800/60 px-3 py-1 rounded-lg">
+                VNSGU Result Statement
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+            {/* Authentic Tabular Statement matching User Screenshot */}
+            <div className="lg:col-span-6 bg-slate-950/90 border border-slate-800/90 rounded-xl p-4 sm:p-5 shadow-inner flex flex-col justify-between">
+              <div className="text-[11px] font-mono font-bold uppercase text-slate-400 mb-3 tracking-wider flex items-center justify-between">
+                <span>Result Summary :</span>
+                <span className="text-[10px] text-slate-500">Gazette Standard</span>
+              </div>
+              <div className="space-y-2 font-mono text-sm sm:text-base">
+                {summaryList.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
+                    <span className="font-extrabold text-white tracking-wide uppercase">
+                      {item.label}
+                    </span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-slate-400 font-bold">:</span>
+                      <span className={`font-black text-right min-w-[70px] ${item.color}`}>
+                        {item.value}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Metrics Cards */}
+            <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {summaryList.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/60 flex flex-col justify-between hover:border-teal-500/40 transition-all"
+                >
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 truncate">
+                    {item.label}
+                  </div>
+                  <div className={`text-lg sm:text-2xl font-black mt-2 font-mono ${item.color}`}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 6 KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 kpi-grid">

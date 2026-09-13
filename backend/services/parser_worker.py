@@ -49,6 +49,41 @@ def _subject_status(ext_mark_str, grade, subject_index, ext_passing_min):
         min_ext = 18
     return 'FAIL' if ext_val < min_ext else 'PASS'
 
+
+def extract_result_summary_from_pdf(pdf_path):
+    summary = {}
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            for p in reversed(pdf.pages[-3:]):
+                text = p.extract_text() or ""
+                if "Result Summary" in text or "TOTAL RESULT" in text:
+                    patterns = {
+                        "total_result": r"TOTAL\s+RESULT\s*:\s*([\d.]+\s*%?)",
+                        "total_pass": r"TOTAL\s+PASS\s*:\s*(\d+)",
+                        "fail": r"FAIL\s*:\s*(\d+)",
+                        "absent": r"ABSENT\s*:\s*(\d+)",
+                        "form_withdrawn": r"FORM\s+WITHDRAWN\s*:\s*(\d+)",
+                        "reserved": r"RESERVED\s*:\s*(\d+)",
+                        "withheld": r"WITHHELD\s*:\s*(\d+)",
+                        "dlo": r"D\.?\s*L\.?\s*O\.?\s*:\s*(\d+)",
+                        "cancelled": r"CANCELLED\s*:\s*(\d+)",
+                        "wo_165": r"W\.?\s*O\.?\s*165\s*:\s*(\d+)",
+                        "dlo_fec": r"D\.?\s*L\.?\s*O\.?\s*FEC\s*:\s*(\d+)",
+                    }
+                    for key, pat in patterns.items():
+                        m = re.search(pat, text, re.IGNORECASE)
+                        if m:
+                            if key == "total_result":
+                                val = m.group(1).replace("%", "").strip()
+                                summary[key] = f"{val} %"
+                            else:
+                                summary[key] = int(m.group(1))
+                    break
+    except Exception as e:
+        sys.stderr.write(f'extract_result_summary error: {e}\n')
+    return summary
+
 def parse_vnsgu_pdf(pdf_path):
     if not os.path.exists(pdf_path):
         return {'success': False, 'error': f'File not found: {pdf_path}'}
@@ -159,6 +194,7 @@ def parse_vnsgu_pdf(pdf_path):
                 'academic_year': academic_year,
                 'college_name': college_name,
                 'total_extracted': len(formatted_students),
+                'result_summary': extract_result_summary_from_pdf(pdf_path),
                 'students': formatted_students
             }
     except Exception as e:
@@ -223,6 +259,7 @@ def parse_vnsgu_pdf(pdf_path):
             'academic_year': academic_year,
             'college_name': college_name,
             'total_extracted': len(students),
+            'result_summary': extract_result_summary_from_pdf(pdf_path),
             'students': students
         }
     except Exception as e:

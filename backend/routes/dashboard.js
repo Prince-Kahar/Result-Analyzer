@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { optionalAuth } from '../middleware/authMiddleware.js';
@@ -56,6 +58,7 @@ router.get('/', optionalAuth, async (req, res) => {
           total: 0, appeared: 0, passed: 0, failed: 0, atkt: 0,
           pass_percentage: 0, avg_sgpa: 0, colleges_count: 0
         },
+        result_summary: null,
         grade_distribution: { 'O': 0, 'A+': 0, 'A': 0, 'B+': 0, 'B': 0, 'C': 0, 'F': 0 },
         gender_distribution: { 'Male': 0, 'Female': 0 },
         colleges: [],
@@ -119,6 +122,37 @@ router.get('/', optionalAuth, async (req, res) => {
     list.forEach(s => { if (s.college) collegesSet.add(s.college); });
     const colleges = Array.from(collegesSet);
 
+    // Official Gazette Result Summary
+    let resultSummary = null;
+    try {
+      const summariesPath = path.join(process.cwd(), 'backend/data/session_summaries.json');
+      if (fs.existsSync(summariesPath)) {
+        const allSummaries = JSON.parse(fs.readFileSync(summariesPath, 'utf8'));
+        if (allSummaries[activeSessionId]) {
+          resultSummary = allSummaries[activeSessionId];
+        }
+      }
+    } catch (_) {}
+
+    // If no pre-stored summary or if filtering by college, dynamically compute from student records
+    if (!resultSummary || (college && college !== 'ALL')) {
+      const absentCount = list.filter(s => (s.overall_status || '').toUpperCase() === 'ABSENT').length;
+      const withdrawnCount = list.filter(s => (s.overall_status || '').toUpperCase() === 'WITHDRAWN').length;
+      resultSummary = {
+        total_result: total > 0 ? `${passPercentage} %` : '0.00 %',
+        total_pass: passed,
+        fail: failed + atkt,
+        absent: absentCount,
+        form_withdrawn: withdrawnCount,
+        reserved: 0,
+        withheld: 0,
+        dlo: 0,
+        cancelled: 0,
+        wo_165: 0,
+        dlo_fec: 0
+      };
+    }
+
     res.json({
       success: true,
       session_id: activeSessionId,
@@ -132,6 +166,7 @@ router.get('/', optionalAuth, async (req, res) => {
         avg_sgpa: avgSgpa,
         colleges_count: colleges.length
       },
+      result_summary: resultSummary,
       grade_distribution: gradeDist,
       gender_distribution: genderDist,
       colleges,
