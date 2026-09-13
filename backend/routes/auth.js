@@ -31,26 +31,36 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username or Email already registered' });
     }
 
-    // Insert user into Supabase profiles
-    const { data: newUser, error: insertError } = await supabase
-      .from('profiles')
-      .insert({
-        username: cleanUsername,
-        email: cleanEmail,
-        password: password, // preserved matching legacy auth schema
-        phone: phone || '',
-        status: 'active',
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    // 1. Create user in Supabase Auth (which activates the profiles trigger)
+    const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
+      email: cleanEmail,
+      password: password,
+      email_confirm: true
+    });
 
-    if (insertError) {
-      return res.status(500).json({ success: false, message: insertError.message });
+    if (authErr || !authData?.user?.id) {
+      return res.status(400).json({ success: false, message: authErr?.message || 'Failed to create user account' });
     }
 
+    const userId = authData.user.id;
+
+    // 2. Update profile with custom faculty details
+    const { data: updatedProfile, error: updateErr } = await supabase
+      .from('profiles')
+      .update({
+        username: cleanUsername,
+        college_name: college_name || 'VNSGU Affiliated College',
+        course: 'All Courses',
+        phone: phone || '',
+        password: password,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .maybeSingle();
+
     const token = jwt.sign(
-      { id: newUser.id, username: newUser.username, email: newUser.email, role: 'user' },
+      { id: userId, username: cleanUsername, email: cleanEmail, role: 'user' },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -60,14 +70,15 @@ router.post('/register', async (req, res) => {
       message: 'Registration successful',
       token,
       user: {
-        id: newUser.id,
-        username: newUser.username,
-        email: newUser.email,
-        phone: newUser.phone,
-        college_name: college_name || 'VNSGU Affiliated'
+        id: userId,
+        username: cleanUsername,
+        email: cleanEmail,
+        phone: phone || '',
+        college_name: college_name || 'VNSGU Affiliated College'
       }
     });
   } catch (err) {
+    console.error('Registration Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

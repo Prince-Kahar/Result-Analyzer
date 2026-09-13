@@ -164,24 +164,38 @@ const runNodePdfParser = async (pdfPath) => {
         if (sgpaMatch && sgpa === '--') {
           sgpa = sgpaMatch[1];
         }
-        if (checkLine.includes('FAIL') || checkLine.includes('ATKT') || checkLine.includes('F-')) {
-          overall_status = checkLine.includes('ATKT') ? 'ATKT' : 'FAIL';
+        
+        // Match explicit student result indicators (avoid false matches on column headers like "PASS / FAIL")
+        if (/\b(?:RESULT|STATUS|REMARK)\s*[:=]?\s*FAIL\b/i.test(checkLine) || /^\s*FAIL\s*$/i.test(checkLine)) {
+          overall_status = 'FAIL';
+        } else if (/\b(?:RESULT|STATUS|REMARK)\s*[:=]?\s*ATKT\b/i.test(checkLine) || /^\s*ATKT\s*$/i.test(checkLine)) {
+          overall_status = 'ATKT';
+        } else if (/\bABSENT\b/i.test(checkLine)) {
+          overall_status = 'ABSENT';
+        } else if (/\b(?:WITHDRAWN|FORM\s+WITHDRAWN)\b/i.test(checkLine)) {
+          overall_status = 'WITHDRAWN';
         }
+
         const totMatch = checkLine.match(/TOTAL\s*[:=]?\s*(\d{2,3})/i);
         if (totMatch) {
           total_marks = parseInt(totMatch[1], 10);
         }
       }
 
+      // If student has a valid passing SGPA (>= 4.0), they are PASS (or ATKT), never flat FAIL!
       if (sgpa !== '--') {
         const sVal = parseFloat(sgpa);
+        if (sVal >= 4.0 && overall_status === 'FAIL') {
+          overall_status = 'PASS';
+        }
         if (sVal >= 8.5) overall_grade = 'A+';
         else if (sVal >= 7.0) overall_grade = 'A';
         else if (sVal >= 6.0) overall_grade = 'B+';
         else if (sVal >= 5.0) overall_grade = 'B';
         else overall_grade = 'C';
-      } else if (overall_status === 'FAIL') {
-        overall_grade = 'F';
+      } else {
+        if (overall_status === 'PASS') overall_status = 'FAIL';
+        overall_grade = overall_status === 'ABSENT' ? 'AB' : 'F';
       }
 
       const subjects = [];

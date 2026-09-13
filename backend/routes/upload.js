@@ -59,7 +59,13 @@ async function processUploadedPdf(filePath, originalName, user, res) {
     }
 
     let sessionId = Math.floor(Date.now() / 1000);
-    const userId = user?.id || null;
+    let userId = null;
+    if (user?.id) {
+      try {
+        const { data: pCheck } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
+        if (pCheck?.id) userId = pCheck.id;
+      } catch (_) {}
+    }
 
     try {
       const { data: sessionData, error: sessionErr } = await supabase
@@ -103,12 +109,14 @@ async function processUploadedPdf(filePath, originalName, user, res) {
         created_by: userId
       }));
 
+      let finalInsertedStudents = [];
       const { data: insertedStudents, error: stdErr } = await supabase
         .from('students')
         .insert(chunk)
         .select('id, seat_no');
 
       if (stdErr) {
+        console.warn('Initial student chunk notice, retrying with sanitized payload:', stdErr.message);
         const cleanChunk = chunk.map(c => {
           const copy = { ...c };
           delete copy.created_by;
@@ -119,14 +127,18 @@ async function processUploadedPdf(filePath, originalName, user, res) {
           .insert(cleanChunk)
           .select('id, seat_no');
 
-        if (!retryErr) {
-          insertedStudentsCount += (retryStudents || []).length;
+        if (!retryErr && retryStudents) {
+          finalInsertedStudents = retryStudents;
+          insertedStudentsCount += retryStudents.length;
+        } else if (retryErr) {
+          console.error('Failed to insert student chunk on retry:', retryErr.message);
         }
-      } else {
-        insertedStudentsCount += (insertedStudents || []).length;
+      } else if (insertedStudents) {
+        finalInsertedStudents = insertedStudents;
+        insertedStudentsCount += insertedStudents.length;
       }
 
-      const currentInserted = insertedStudents || [];
+      const currentInserted = finalInsertedStudents;
       const marksToInsert = [];
       const studentIdMap = new Map(currentInserted.map(s => [String(s.seat_no), s.id]));
 
