@@ -62,6 +62,9 @@ export const DashboardPage = () => {
       const res = await api.getDashboard(params.toString());
       if (res.success) {
         setData(res);
+        if (res.session_id && !activeSessionId) {
+          setActiveSessionId(res.session_id);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -180,7 +183,7 @@ export const DashboardPage = () => {
     });
   }, [rawSummary, stats]);
 
-  if (!loading && (!hasUploaded || stats.total === 0)) {
+  if (!loading && stats.total === 0) {
     return (
       <EmptyState
         title="No Examination Result Uploaded Yet"
