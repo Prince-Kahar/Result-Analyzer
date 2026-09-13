@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { usePWA } from '../context/PWAContext';
 import {
   LayoutDashboard,
   Upload,
@@ -17,13 +16,10 @@ import {
   Settings,
   LogOut,
   ShieldCheck,
-  Monitor,
-  Download
 } from 'lucide-react';
 
 export const Sidebar = () => {
   const { user, isAuthenticated, logout } = useAuth();
-  const { isInstalled, promptInstall } = usePWA();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -99,29 +95,6 @@ export const Sidebar = () => {
 
       {/* Bottom Area: Desktop PWA Card & User Profile */}
       <div className="pt-3 flex-shrink-0 space-y-3">
-        {/* Desktop PWA Install Card */}
-        {!isInstalled && (
-          <div className="p-3 rounded-xl bg-gradient-to-br from-teal-950/40 via-slate-900/80 to-slate-900 border border-teal-500/30 shadow-sm">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="p-1.5 rounded-lg bg-teal-500/20 text-teal-300">
-                <Monitor size={14} />
-              </div>
-              <span className="text-xs font-bold text-white">Desktop Application</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
-              Install native standalone app for Windows / Mac with taskbar pin & instant speed.
-            </p>
-            <button
-              type="button"
-              onClick={promptInstall}
-              className="w-full flex items-center justify-center gap-2 py-1.5 px-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
-            >
-              <Download size={13} />
-              <span>Install on PC / Mac</span>
-            </button>
-          </div>
-        )}
-
         {/* User Profile / Logout */}
         {isAuthenticated && (
           <div className="border-t border-slate-800/80 pt-3">

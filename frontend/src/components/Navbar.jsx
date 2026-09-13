@@ -2,13 +2,11 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { usePWA } from '../context/PWAContext';
-import { Sun, Moon, Search, Menu, LogIn, Download, Monitor, Smartphone } from 'lucide-react';
+import { Sun, Moon, Search, Menu, LogIn } from 'lucide-react';
 
 export const Navbar = ({ onOpenMenu, onOpenSearch }) => {
   const { isDark, toggleTheme } = useTheme();
   const { user, isAuthenticated } = useAuth();
-  const { isInstalled, promptInstall, platform } = usePWA();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -59,26 +57,6 @@ export const Navbar = ({ onOpenMenu, onOpenSearch }) => {
 
       {/* Right: Install App, Search, Theme, Auth */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* PWA Install Button (Desktop & Mobile) */}
-        {!isInstalled && (
-          <button
-            type="button"
-            onClick={promptInstall}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-teal-600 via-teal-500 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 rounded-lg shadow-sm shadow-teal-500/25 border border-teal-400/30 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
-            title={platform === 'ios' || platform === 'android' ? 'Install Mobile App' : 'Install Desktop App'}
-          >
-            {platform === 'ios' || platform === 'android' ? (
-              <Smartphone size={14} className="text-teal-100" />
-            ) : (
-              <Monitor size={14} className="text-teal-100" />
-            )}
-            <span className="hidden sm:inline">
-              {platform === 'ios' || platform === 'android' ? 'Install App' : 'Install Desktop App'}
-            </span>
-            <span className="sm:hidden">Install</span>
-          </button>
-        )}
-
         {/* Quick Search Ctrl+K trigger */}
         <button
           type="button"

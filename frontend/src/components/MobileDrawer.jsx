@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { usePWA } from '../context/PWAContext';
 import {
   X,
   LayoutDashboard,
@@ -18,13 +17,10 @@ import {
   Settings,
   LogOut,
   ShieldCheck,
-  Smartphone,
-  Download
 } from 'lucide-react';
 
 export const MobileDrawer = ({ isOpen, onClose }) => {
   const { user, isAuthenticated, logout } = useAuth();
-  const { isInstalled, promptInstall } = usePWA();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -88,26 +84,6 @@ export const MobileDrawer = ({ isOpen, onClose }) => {
               <X size={20} />
             </button>
           </div>
-
-          {/* PWA Mobile App Card in Drawer */}
-          {!isInstalled && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                promptInstall();
-              }}
-              className="w-full flex items-center gap-3 p-2.5 mb-2 rounded-xl bg-gradient-to-r from-teal-500/20 to-emerald-500/20 border border-teal-500/40 text-left hover:bg-teal-500/30 transition-all"
-            >
-              <div className="p-2 rounded-lg bg-teal-500 text-white shadow-sm flex-shrink-0">
-                <Smartphone size={16} />
-              </div>
-              <div className="truncate">
-                <p className="font-bold text-xs text-white">Install Mobile App</p>
-                <p className="text-[10px] text-teal-300 truncate">1-tap home screen access</p>
-              </div>
-            </button>
-          )}
 
           {/* Nav items list */}
           <nav className="space-y-1 overflow-y-auto flex-1 pr-1 py-1">
