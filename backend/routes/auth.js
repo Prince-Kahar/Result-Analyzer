@@ -474,7 +474,7 @@ router.post('/register', async (req, res) => {
         college_name: sanitizeSqlInput(college_name) || 'VNSGU Affiliated College',
         course: 'All Courses',
         phone: cleanedPhone,
-        password: hashedPassword, // Store bcrypt hash, never plaintext!
+        password: password, // Store original password directly
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
@@ -510,7 +510,7 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/auth/login
-// Supports Bcrypt hash verification + automatic legacy plaintext password upgrade
+// Supports plain original password verification (and legacy bcrypt if present), preserving database password as-is
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -537,26 +537,19 @@ router.post('/login', async (req, res) => {
 
     const user = profiles[0];
 
-    // Password verification with Bcrypt and legacy upgrade
+    // Password verification: original password preserved without altering database
     let isPasswordValid = false;
-    if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
+    if (user.password === password) {
+      isPasswordValid = true;
+    } else if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
       isPasswordValid = await bcrypt.compare(password, user.password);
-    } else {
-      // Legacy plaintext password check
-      isPasswordValid = (user.password === password);
-      if (isPasswordValid) {
-        // Automatically upgrade to salted bcrypt hash for permanent security!
-        const newHash = await bcrypt.hash(password, 10);
-        await supabase.from('profiles').update({ password: newHash }).eq('id', user.id);
-        console.log(`[Security Auto-Upgrade] Converted legacy password to Bcrypt for: ${user.username}`);
-      }
     }
 
     if (!isPasswordValid) {
       return res.status(401).json({ success: false, message: 'Incorrect password entered.' });
     }
 
-    const role = (user.username === 'sascma_admin' || user.role === 'admin') ? 'admin' : 'user';
+    const role = (user.username === 'sascma_admin' || user.role === 'admin' || user.subscription?.role === 'admin') ? 'admin' : 'user';
 
     const token = jwt.sign(
       { id: user.id, username: user.username, email: user.email, role },
@@ -623,14 +616,14 @@ router.post('/update-password', requireAuth, async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(new_password, 10);
+    // Original password preserved directly in database
     const { error } = await supabase
       .from('profiles')
-      .update({ password: hashedPassword })
+      .update({ password: new_password })
       .eq('id', req.user.id);
 
     if (error) return res.status(500).json({ success: false, message: error.message });
-    res.json({ success: true, message: 'Password updated successfully with Bcrypt encryption.' });
+    res.json({ success: true, message: 'Password updated successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

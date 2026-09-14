@@ -7,7 +7,9 @@ import {
   Trash2, RefreshCw, CheckCircle2, AlertTriangle, Mail, Send,
   Building, Phone, Search, UserCheck, UserX, Cpu, Database,
   PlusCircle, Edit3, ArrowLeft, ExternalLink, MessageSquare,
-  GraduationCap, Download, Radio, Volume2, Save, X, Eye, EyeOff
+  GraduationCap, Download, Radio, Volume2, Save, X, Eye, EyeOff,
+  Server, Activity, Shield, Layers, HardDrive, Terminal, Clock,
+  ToggleLeft, ToggleRight, Check, Copy
 } from 'lucide-react';
 
 export const AdminPage = () => {
@@ -15,7 +17,7 @@ export const AdminPage = () => {
   const navigate = useNavigate();
 
   // Active Admin View Tab
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'users' | 'sessions' | 'students' | 'tickets' | 'security' | 'broadcast'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'users' | 'sessions' | 'students' | 'explorer' | 'tickets' | 'broadcast'
 
   // Data states
   const [stats, setStats] = useState(null);
@@ -23,16 +25,28 @@ export const AdminPage = () => {
   const [sessions, setSessions] = useState([]);
   const [students, setStudents] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [announcement, setAnnouncement] = useState({ active: false, message: '', type: 'info' });
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [announcement, setAnnouncement] = useState({ active: false, message: '', type: 'info', maintenanceMode: false });
 
-  // Loading & notification states
+  // Table Explorer state
+  const [selectedTable, setSelectedTable] = useState('profiles');
+  const [tableData, setTableData] = useState({ columns: [], rows: [], count: 0 });
+  const [tableLoading, setTableLoading] = useState(false);
+
+  // Student details modal state
+  const [selectedStudentMarks, setSelectedStudentMarks] = useState([]);
+  const [showStudentMarksModal, setShowStudentMarksModal] = useState(false);
+  const [marksLoading, setMarksLoading] = useState(false);
+
+  // General loading & notification states
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [visiblePasswords, setVisiblePasswords] = useState({});
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-  // Student search states
+  // Student search state
   const [studentSearchQ, setStudentSearchQ] = useState('');
   const [studentSearchLoading, setStudentSearchLoading] = useState(false);
 
@@ -44,7 +58,7 @@ export const AdminPage = () => {
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [showReplyTicketModal, setShowReplyTicketModal] = useState(false);
 
-  // Selected entities for modals
+  // Selected items for modals
   const [selectedUser, setSelectedUser] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -58,35 +72,47 @@ export const AdminPage = () => {
     college_name: '', phone: '', course: '', email: ''
   });
   const [newPassword, setNewPassword] = useState('');
-  const [showNewPass, setShowNewPass] = useState(false);
   const [sessionRenameText, setSessionRenameText] = useState('');
   const [editStudentForm, setEditStudentForm] = useState({
     name: '', seat_no: '', college_name: '', result: 'PASS', sgpa: '', percentage: ''
   });
   const [ticketReplyText, setTicketReplyText] = useState('');
 
-  // Diagnostic forms
+  // Diagnostic & broadcast forms
   const [smtpTargetEmail, setSmtpTargetEmail] = useState('');
-  const [broadcastForm, setBroadcastForm] = useState({ active: false, message: '', type: 'info' });
+  const [broadcastForm, setBroadcastForm] = useState({ active: false, message: '', type: 'info', maintenanceMode: false });
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
   };
 
-  // Load all initial admin data
+  const togglePasswordVisibility = (userId) => {
+    setVisiblePasswords(prev => ({
+      ...prev,
+      [userId]: !prev[userId]
+    }));
+  };
+
+  const copyToClipboard = (text, label = 'Copied') => {
+    navigator.clipboard.writeText(text);
+    showToast(`${label} copied to clipboard!`);
+  };
+
+  // Load initial data
   const loadAllAdminData = async () => {
     try {
       setLoading(true);
       const [statsRes, usersRes, sessRes, ticketsRes, annRes] = await Promise.all([
-        api.getAdminStats().catch(() => ({ stats: null })),
+        api.getAdminStats().catch(() => ({ stats: null, auditLogs: [] })),
         api.getAdminUsers().catch(() => ({ users: [] })),
         api.getAdminSessions().catch(() => ({ sessions: [] })),
         api.getAdminTickets().catch(() => ({ tickets: [] })),
-        api.getAdminAnnouncement().catch(() => ({ announcement: { active: false, message: '', type: 'info' } }))
+        api.getAdminAnnouncement().catch(() => ({ announcement: { active: false, message: '', type: 'info', maintenanceMode: false } }))
       ]);
 
       if (statsRes?.stats) setStats(statsRes.stats);
+      if (statsRes?.auditLogs) setAuditLogs(statsRes.auditLogs);
       if (usersRes?.users) setUsers(usersRes.users);
       if (sessRes?.sessions) setSessions(sessRes.sessions);
       if (ticketsRes?.tickets) setTickets(ticketsRes.tickets);
@@ -95,7 +121,7 @@ export const AdminPage = () => {
         setBroadcastForm(annRes.announcement);
       }
     } catch (err) {
-      showToast('Error loading administrative data: ' + err.message, 'error');
+      showToast('Error synchronizing data: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -105,7 +131,32 @@ export const AdminPage = () => {
     loadAllAdminData();
   }, []);
 
-  // Search students when query changes or tab selected
+  // Fetch table explorer data when tab is explorer or selectedTable changes
+  const fetchTableData = async (table) => {
+    try {
+      setTableLoading(true);
+      const res = await api.getAdminTableExplorer(table, { limit: 50 });
+      if (res.success) {
+        setTableData({
+          columns: res.columns || [],
+          rows: res.rows || [],
+          count: res.count || 0
+        });
+      }
+    } catch (err) {
+      showToast('Error querying database table: ' + err.message, 'error');
+    } finally {
+      setTableLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'explorer') {
+      fetchTableData(selectedTable);
+    }
+  }, [activeTab, selectedTable]);
+
+  // Search students
   const handleSearchStudents = async (e) => {
     if (e) e.preventDefault();
     try {
@@ -115,7 +166,7 @@ export const AdminPage = () => {
         setStudents(res.students);
       }
     } catch (err) {
-      showToast('Failed to query student database: ' + err.message, 'error');
+      showToast('Student query error: ' + err.message, 'error');
     } finally {
       setStudentSearchLoading(false);
     }
@@ -126,6 +177,22 @@ export const AdminPage = () => {
       handleSearchStudents();
     }
   }, [activeTab]);
+
+  // View marks for student
+  const handleViewStudentMarks = async (student) => {
+    setSelectedStudent(student);
+    setShowStudentMarksModal(true);
+    setMarksLoading(true);
+    try {
+      const res = await api.getAdminStudentMarks(student.id);
+      setSelectedStudentMarks(res.marks || []);
+    } catch (err) {
+      showToast('Failed to fetch marks breakdown: ' + err.message, 'error');
+      setSelectedStudentMarks([]);
+    } finally {
+      setMarksLoading(false);
+    }
+  };
 
   // Access check: Only superadmin or admin role allowed
   const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin';
@@ -187,15 +254,31 @@ export const AdminPage = () => {
     if (targetUser.username === 'sascma_admin' && newRole !== 'admin') {
       return showToast('Cannot demote root superadministrator.', 'error');
     }
-    if (!window.confirm(`Are you sure you want to change ${targetUser.username}'s role to ${newRole.toUpperCase()}?`)) return;
+    if (!window.confirm(`Change ${targetUser.username}'s role to ${newRole.toUpperCase()}?`)) return;
 
     try {
       setActionLoading(true);
       const res = await api.updateUserRole(targetUser.id, newRole);
-      showToast(res.message || `Role changed to ${newRole}.`);
+      showToast(res.message || `Role updated to ${newRole}.`);
       await loadAllAdminData();
     } catch (err) {
       showToast(err.message || 'Failed to update role', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (targetUser) => {
+    if (targetUser.username === 'sascma_admin') {
+      return showToast('Root superadministrator cannot be suspended.', 'error');
+    }
+    try {
+      setActionLoading(true);
+      const res = await api.toggleAdminUserStatus(targetUser.id);
+      showToast(res.message || `Account status updated.`);
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to toggle status', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -207,7 +290,7 @@ export const AdminPage = () => {
     try {
       setActionLoading(true);
       const res = await api.adminResetPassword(selectedUser.id, newPassword);
-      showToast(res.message || `Password reset with Bcrypt for ${selectedUser.username}.`);
+      showToast(res.message || `Password updated for ${selectedUser.username}.`);
       setShowResetPassModal(false);
       setNewPassword('');
       await loadAllAdminData();
@@ -254,12 +337,12 @@ export const AdminPage = () => {
   };
 
   const handleDeleteSession = async (sess) => {
-    if (!window.confirm(`CASCADE DELETE: Delete session "${sess.session_name}"? All associated student records and marks will be permanently removed.`)) return;
+    if (!window.confirm(`CASCADE DELETE: Delete session "${sess.session_name}"? All student records and marks will be permanently removed.`)) return;
 
     try {
       setActionLoading(true);
       const res = await api.deleteAdminSession(sess.id);
-      showToast(res.message || 'Session and associated records removed.');
+      showToast(res.message || 'Session and associated records purged.');
       await loadAllAdminData();
     } catch (err) {
       showToast(err.message || 'Failed to delete session', 'error');
@@ -344,7 +427,7 @@ export const AdminPage = () => {
     }
   };
 
-  // ==================== SECURITY & DIAGNOSTIC ACTIONS ====================
+  // ==================== DIAGNOSTICS & BROADCAST ====================
   const handleTestSmtp = async (e) => {
     e.preventDefault();
     try {
@@ -353,20 +436,6 @@ export const AdminPage = () => {
       showToast(res.message || 'Test email dispatched successfully.');
     } catch (err) {
       showToast(err.message || 'SMTP diagnostic failed', 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleRehashPasswords = async () => {
-    if (!window.confirm('Run security migration? All unhashed legacy passwords will be converted to salted Bcrypt hashes.')) return;
-    try {
-      setActionLoading(true);
-      const res = await api.rehashLegacyPasswords();
-      showToast(res.message || 'Security upgrade completed.');
-      await loadAllAdminData();
-    } catch (err) {
-      showToast(err.message || 'Migration failed', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -412,49 +481,61 @@ export const AdminPage = () => {
         </div>
       )}
 
-      {/* ==================== 1. EXECUTIVE ADMIN TOP BAR ==================== */}
+      {/* ==================== 1. EXECUTIVE COMMAND BAR ==================== */}
       <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800/80 px-4 sm:px-8 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
         <div className="flex items-center gap-3.5 w-full sm:w-auto justify-between sm:justify-start">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('overview')}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 to-indigo-600 flex items-center justify-center text-slate-950 font-black shadow-md shadow-teal-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 via-indigo-500 to-purple-600 flex items-center justify-center text-slate-950 font-black shadow-md shadow-teal-500/20">
               <ShieldCheck size={24} className="text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-extrabold text-white tracking-wide">SASCMA STERS</h1>
                 <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full">
-                  Admin Portal
+                  Root Administrator
                 </span>
               </div>
-              <p className="text-[11px] text-teal-400 font-semibold tracking-wide">Root System Control Center</p>
+              <p className="text-[11px] text-teal-400 font-semibold tracking-wide">University Administration & Database Engine</p>
             </div>
           </div>
 
-          {/* System Vitals Pill */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700/60 text-[11px] text-slate-300">
+          {/* Live System Vitals Pill */}
+          <div className="hidden xl:flex items-center gap-2.5 px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700/60 text-[11px] text-slate-300">
             <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> DB Online
-            </span>
-            <span className="text-slate-600">•</span>
-            <span className="text-teal-400 font-medium flex items-center gap-1">
-              <Lock size={12} /> Bcrypt (10R)
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Cloud DB Online
             </span>
             <span className="text-slate-600">•</span>
             <span className="text-indigo-400 font-medium flex items-center gap-1">
-              <Mail size={12} /> SMTP Active
+              <Clock size={12} /> Up: {stats?.serverUptime || 'Active'}
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-amber-400 font-medium flex items-center gap-1">
+              <HardDrive size={12} /> RAM: {stats?.memoryUsageRss || 'Normal'}
             </span>
           </div>
         </div>
 
         {/* Right Controls */}
         <div className="flex items-center gap-2.5 sm:gap-4 w-full sm:w-auto justify-end">
+          {/* Quick Database Backup Button */}
+          <a
+            href="/api/admin/backup-db"
+            download
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl transition-all shadow-sm"
+            title="Download full JSON backup of all tables"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">Backup Database</span>
+          </a>
+
+          {/* Switch to Public Faculty Dashboard */}
           <button
             onClick={() => navigate('/dashboard')}
             className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold rounded-xl border border-slate-700 transition-all shadow-sm"
-            title="Open standard student analysis dashboard"
+            title="Open student result visualization dashboard"
           >
             <ExternalLink size={14} className="text-teal-400" />
-            <span>Faculty Dashboard</span>
+            <span>Faculty Portal</span>
           </button>
 
           {/* Admin User Chip & Logout */}
@@ -483,28 +564,28 @@ export const AdminPage = () => {
       {/* ==================== 2. ADMIN WORKSPACE BODY ==================== */}
       <div className="flex-1 flex flex-col md:flex-row">
         {/* Dedicated Admin Sidebar */}
-        <aside className="w-full md:w-64 bg-slate-900/60 border-r border-slate-800/80 p-3 sm:p-4 flex-shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
+        <aside className="w-full md:w-64 bg-slate-900/70 border-r border-slate-800/80 p-3 sm:p-4 flex-shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
           <div className="hidden md:block pb-2 px-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Administration Suite
+            Command Center
           </div>
 
           <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'overview'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
-            <Cpu size={16} className={activeTab === 'overview' ? 'text-teal-400' : 'text-slate-400'} />
-            <span>Overview & KPIs</span>
+            <Activity size={16} className={activeTab === 'overview' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Overview & Vitals</span>
           </button>
 
           <button
             onClick={() => setActiveTab('users')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'users'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
@@ -516,7 +597,7 @@ export const AdminPage = () => {
             onClick={() => setActiveTab('sessions')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'sessions'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
@@ -528,7 +609,7 @@ export const AdminPage = () => {
             onClick={() => setActiveTab('students')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'students'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
@@ -537,10 +618,22 @@ export const AdminPage = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('explorer')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'explorer'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <Database size={16} className={activeTab === 'explorer' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Table Explorer</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('tickets')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'tickets'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
@@ -549,30 +642,18 @@ export const AdminPage = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
-              activeTab === 'security'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-            }`}
-          >
-            <Lock size={16} className={activeTab === 'security' ? 'text-teal-400' : 'text-slate-400'} />
-            <span>Security & SMTP</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('broadcast')}
             className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
               activeTab === 'broadcast'
-                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                ? 'bg-gradient-to-r from-teal-500/20 to-teal-500/5 text-teal-300 border border-teal-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
             <Radio size={16} className={activeTab === 'broadcast' ? 'text-teal-400' : 'text-slate-400'} />
-            <span>System Broadcast</span>
+            <span>Broadcast & Emergency</span>
           </button>
 
-          {/* Refresh Action at Bottom */}
+          {/* Sync Data at Bottom */}
           <div className="hidden md:block mt-auto pt-4 border-t border-slate-800/80">
             <button
               onClick={loadAllAdminData}
@@ -587,32 +668,32 @@ export const AdminPage = () => {
 
         {/* Admin Main Content Workspace */}
         <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full">
-          {/* ==================== TAB 1: OVERVIEW ==================== */}
+          {/* ==================== TAB 1: OVERVIEW & VITALS ==================== */}
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-fade-in">
-              {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Executive Dashboard</h2>
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">System Command Center</h2>
                   <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                    Centralized management and security health for Veer Narmad South Gujarat University.
+                    Live system telemetry, database status, and executive administration shortcuts.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowAddUserModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-500/20 transition-all"
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-500/20 transition-all"
                   >
                     <PlusCircle size={16} />
                     <span>Create User</span>
                   </button>
-                  <button
-                    onClick={() => setActiveTab('security')}
+                  <a
+                    href="/api/admin/backup-db"
+                    download
                     className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all"
                   >
-                    <Lock size={15} className="text-teal-400" />
-                    <span>Run Bcrypt Audit</span>
-                  </button>
+                    <Download size={15} className="text-emerald-400" />
+                    <span>Download JSON Backup</span>
+                  </a>
                 </div>
               </div>
 
@@ -620,20 +701,20 @@ export const AdminPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                   <div className="flex items-center justify-between text-slate-400 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider">Registered Users</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider">Registered Accounts</span>
                     <Users size={18} className="text-teal-400" />
                   </div>
                   <div className="text-2xl sm:text-3xl font-black text-white">
                     {stats?.totalUsers ?? users.length}
                   </div>
                   <p className="text-[11px] text-teal-400 mt-1 font-medium">
-                    {stats?.adminCount || 1} Admins • {(stats?.totalUsers || users.length) - (stats?.adminCount || 1)} Faculty
+                    {stats?.adminCount || 1} Admins • {stats?.facultyCount || (users.length - 1)} Faculty
                   </p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                   <div className="flex items-center justify-between text-slate-400 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider">Uploaded Sessions</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider">Exam Gazettes</span>
                     <FileSpreadsheet size={18} className="text-indigo-400" />
                   </div>
                   <div className="text-2xl sm:text-3xl font-black text-white">
@@ -646,100 +727,86 @@ export const AdminPage = () => {
 
                 <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                   <div className="flex items-center justify-between text-slate-400 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider">Security Encryption</span>
-                    <ShieldCheck size={18} className="text-emerald-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Marks Records</span>
+                    <Layers size={18} className="text-purple-400" />
                   </div>
                   <div className="text-2xl sm:text-3xl font-black text-white">
-                    {stats?.bcryptProtectedCount ?? 0} <span className="text-sm font-normal text-slate-400">/ {stats?.totalUsers ?? users.length}</span>
+                    {stats?.totalMarksRecords ?? 0}
                   </div>
-                  <p className="text-[11px] text-emerald-400 mt-1 font-medium">
-                    Bcrypt (Salt 10 Rounds) + Anti-SQLi
+                  <p className="text-[11px] text-purple-400 mt-1 font-medium">
+                    Subject marks indexed in Supabase
                   </p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                   <div className="flex items-center justify-between text-slate-400 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider">Email Automation</span>
-                    <Mail size={18} className="text-amber-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Server Diagnostics</span>
+                    <Server size={18} className="text-emerald-400" />
                   </div>
                   <div className="text-lg sm:text-xl font-bold text-white mt-1">
-                    Operational
+                    {stats?.memoryUsageRss || 'Normal'}
                   </div>
-                  <p className="text-[11px] text-amber-400 mt-1 font-medium">
-                    Gmail SMTP • Instant OTP Dispatch
+                  <p className="text-[11px] text-emerald-400 mt-1 font-medium">
+                    Node.js {stats?.nodeVersion || 'v20'} • Uptime: {stats?.serverUptime || 'Live'}
                   </p>
                 </div>
               </div>
 
-              {/* Quick Jump & Recents */}
+              {/* Server Telemetry & Activity Logs Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Recent Users */}
-                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <Users size={16} className="text-teal-400" /> Recent User Registrations
-                      </h3>
-                      <button onClick={() => setActiveTab('users')} className="text-xs text-teal-400 hover:text-teal-300 font-semibold">
-                        View All ({users.length}) →
-                      </button>
+                {/* System Diagnostics Box */}
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Terminal size={16} className="text-teal-400" /> Server Architecture & Database Vitals
+                    </h3>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-bold">
+                      HEALTHY
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Cloud Database</span>
+                      <span className="font-bold text-white">Supabase PostgreSQL</span>
                     </div>
-                    <div className="space-y-2.5">
-                      {users.slice(0, 4).map((u) => (
-                        <div key={u.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold">
-                              {u.username[0]?.toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-200">{u.username}</p>
-                              <p className="text-[10px] text-slate-400">{u.college_name || 'VNSGU Faculty'}</p>
-                            </div>
-                          </div>
-                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
-                            u.role === 'admin' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-700/40 text-slate-400'
-                          }`}>
-                            {u.role.toUpperCase()}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Email Relay</span>
+                      <span className="font-bold text-white">Gmail SMTP Service</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Node Process Uptime</span>
+                      <span className="font-bold text-teal-400 font-mono">{stats?.serverUptime || 'Active'}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">Memory Allocation</span>
+                      <span className="font-bold text-indigo-400 font-mono">{stats?.memoryUsageHeap || 'Normal'}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Recent Exam Sessions */}
-                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <FileSpreadsheet size={16} className="text-indigo-400" /> Recent Exam Gazettes
-                      </h3>
-                      <button onClick={() => setActiveTab('sessions')} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold">
-                        View All ({sessions.length}) →
-                      </button>
-                    </div>
-                    {sessions.length === 0 ? (
-                      <div className="text-center py-6 text-slate-500 text-xs">
-                        No examination gazettes uploaded yet.
-                      </div>
+                {/* Audit & Activity Logs Box */}
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Activity size={16} className="text-indigo-400" /> Administrative Audit Log
+                    </h3>
+                    <span className="text-[10px] text-slate-400">Recent events</span>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {auditLogs.length === 0 ? (
+                      <div className="text-xs text-slate-500 text-center py-4">No recent activity logged.</div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {sessions.slice(0, 4).map((s) => (
-                          <div key={s.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 text-xs">
-                            <div>
-                              <p className="font-bold text-slate-200">{s.session_name}</p>
-                              <p className="text-[10px] text-slate-400">{s.total_students || 0} students • {new Date(s.created_at).toLocaleDateString()}</p>
-                            </div>
-                            <button
-                              onClick={() => handleDeleteSession(s)}
-                              className="text-rose-400 hover:text-rose-300 p-1"
-                              title="Delete Session"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                      auditLogs.map((log) => (
+                        <div key={log.id} className="p-2 rounded-xl bg-slate-800/30 border border-slate-800/60 text-[11px] flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-teal-400 mr-2">[{log.action}]</span>
+                            <span className="text-slate-300">{log.details}</span>
                           </div>
-                        ))}
-                      </div>
+                          <span className="text-[10px] text-slate-500 ml-2 whitespace-nowrap">
+                            {new Date(log.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -747,13 +814,13 @@ export const AdminPage = () => {
             </div>
           )}
 
-          {/* ==================== TAB 2: FACULTY & USERS ==================== */}
+          {/* ==================== TAB 2: FACULTY & USERS (WITH ORIGINAL PASSWORDS) ==================== */}
           {activeTab === 'users' && (
             <div className="space-y-5 animate-fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-black text-white">Faculty & User Directory</h2>
-                  <p className="text-xs text-slate-400">Manage, promote, reset passwords, or remove registered accounts.</p>
+                  <p className="text-xs text-slate-400">View original database passwords, update details, toggle roles, or suspend accounts.</p>
                 </div>
                 <button
                   onClick={() => setShowAddUserModal(true)}
@@ -763,7 +830,7 @@ export const AdminPage = () => {
                 </button>
               </div>
 
-              {/* Filters */}
+              {/* Search & Role Filter */}
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <div className="relative flex-1 w-full">
                   <input
@@ -795,14 +862,15 @@ export const AdminPage = () => {
                         <th className="py-3 px-4">User</th>
                         <th className="py-3 px-4">College / Dept</th>
                         <th className="py-3 px-4">Phone / Contact</th>
-                        <th className="py-3 px-4">Role</th>
+                        <th className="py-3 px-4">Original Password</th>
+                        <th className="py-3 px-4">Status & Role</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-slate-300">
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan="5" className="text-center py-8 text-slate-500">
+                          <td colSpan="6" className="text-center py-8 text-slate-500">
                             No users matched your query.
                           </td>
                         </tr>
@@ -827,18 +895,52 @@ export const AdminPage = () => {
                             <td className="py-3 px-4 font-mono text-[11px] text-slate-400">
                               {u.phone ? `+91 ${u.phone}` : '—'}
                             </td>
+                            <td className="py-3 px-4 font-mono text-xs">
+                              <div className="flex items-center gap-2 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-800 max-w-[170px]">
+                                <span className="truncate">
+                                  {visiblePasswords[u.id] ? u.password : '••••••••'}
+                                </span>
+                                <button
+                                  onClick={() => togglePasswordVisibility(u.id)}
+                                  className="text-slate-400 hover:text-teal-300 ml-auto"
+                                  title={visiblePasswords[u.id] ? 'Hide password' : 'View original password'}
+                                >
+                                  {visiblePasswords[u.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                                </button>
+                                <button
+                                  onClick={() => copyToClipboard(u.password, 'Password')}
+                                  className="text-slate-400 hover:text-teal-300"
+                                  title="Copy password"
+                                >
+                                  <Copy size={13} />
+                                </button>
+                              </div>
+                            </td>
                             <td className="py-3 px-4">
-                              <button
-                                onClick={() => handleToggleRole(u)}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
-                                  u.role === 'admin'
-                                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30'
-                                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                                }`}
-                                title="Click to toggle role between Admin and Faculty"
-                              >
-                                {u.role === 'admin' ? 'Superadmin / Admin' : 'Faculty'}
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleToggleRole(u)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                    u.role === 'admin'
+                                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                                  }`}
+                                  title="Click to toggle role"
+                                >
+                                  {u.role === 'admin' ? 'ADMIN' : 'FACULTY'}
+                                </button>
+                                <button
+                                  onClick={() => handleToggleStatus(u)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                    u.status === 'Suspended'
+                                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  }`}
+                                  title="Toggle account active/suspended"
+                                >
+                                  {u.status || 'Active'}
+                                </button>
+                              </div>
                             </td>
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
@@ -865,7 +967,7 @@ export const AdminPage = () => {
                                     setShowResetPassModal(true);
                                   }}
                                   className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                  title="Reset Password (Bcrypt)"
+                                  title="Reset Password"
                                 >
                                   <KeyRound size={15} />
                                 </button>
@@ -977,8 +1079,8 @@ export const AdminPage = () => {
             <div className="space-y-5 animate-fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-black text-white">Global Student Records</h2>
-                  <p className="text-xs text-slate-400">Search and edit student results across all imported examination gazettes.</p>
+                  <h2 className="text-xl font-black text-white">Global Student Records & Marks Inspector</h2>
+                  <p className="text-xs text-slate-400">Search students across all gazettes, inspect subject marks, or correct data.</p>
                 </div>
               </div>
 
@@ -1052,6 +1154,13 @@ export const AdminPage = () => {
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
+                                  onClick={() => handleViewStudentMarks(stud)}
+                                  className="px-2 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 rounded-lg text-[11px] font-semibold border border-indigo-500/20"
+                                  title="View Marks Breakdown"
+                                >
+                                  View Marks
+                                </button>
+                                <button
                                   onClick={() => {
                                     setSelectedStudent(stud);
                                     setEditStudentForm({
@@ -1088,7 +1197,92 @@ export const AdminPage = () => {
             </div>
           )}
 
-          {/* ==================== TAB 5: SUPPORT TICKETS ==================== */}
+          {/* ==================== TAB 5: RAW DATABASE TABLE EXPLORER ==================== */}
+          {activeTab === 'explorer' && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-white">Live Database Table Explorer</h2>
+                  <p className="text-xs text-slate-400">Directly inspect raw database rows and schema from Supabase PostgreSQL.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href="/api/admin/backup-db"
+                    download
+                    className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold rounded-xl shadow-sm transition-all"
+                  >
+                    <Download size={14} /> Full DB JSON Export
+                  </a>
+                </div>
+              </div>
+
+              {/* Table Selector Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {['profiles', 'import_sessions', 'students', 'student_marks'].map((tableName) => (
+                  <button
+                    key={tableName}
+                    onClick={() => setSelectedTable(tableName)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                      selectedTable === tableName
+                        ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    public.{tableName}
+                  </button>
+                ))}
+              </div>
+
+              {/* Table Grid */}
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md">
+                <div className="p-3 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                  <span>Table: <strong className="text-white">public.{selectedTable}</strong> • Total Rows: <strong className="text-teal-400">{tableData.count}</strong></span>
+                  <button
+                    onClick={() => fetchTableData(selectedTable)}
+                    disabled={tableLoading}
+                    className="flex items-center gap-1 text-teal-400 hover:text-teal-300 font-semibold"
+                  >
+                    <RefreshCw size={13} className={tableLoading ? 'animate-spin' : ''} /> Refresh Table
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto max-h-[500px]">
+                  {tableLoading ? (
+                    <div className="text-center py-12 text-slate-400 text-xs flex items-center justify-center gap-2">
+                      <RefreshCw size={16} className="animate-spin text-teal-400" /> Loading table data...
+                    </div>
+                  ) : tableData.rows.length === 0 ? (
+                    <div className="text-center py-12 text-slate-500 text-xs">
+                      Table is currently empty.
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-[11px] font-mono">
+                      <thead className="bg-slate-800/80 text-slate-300 sticky top-0 border-b border-slate-700">
+                        <tr>
+                          {tableData.columns.map(col => (
+                            <th key={col} className="py-2.5 px-3 whitespace-nowrap">{col}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {tableData.rows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-800/40">
+                            {tableData.columns.map(col => (
+                              <td key={col} className="py-2 px-3 whitespace-nowrap max-w-xs truncate">
+                                {typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col] ?? 'NULL')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 6: SUPPORT TICKETS ==================== */}
           {activeTab === 'tickets' && (
             <div className="space-y-5 animate-fade-in">
               <div className="flex items-center justify-between">
@@ -1173,112 +1367,32 @@ export const AdminPage = () => {
             </div>
           )}
 
-          {/* ==================== TAB 6: SECURITY & SMTP ==================== */}
-          {activeTab === 'security' && (
-            <div className="space-y-6 animate-fade-in">
-              <div>
-                <h2 className="text-xl font-black text-white">Security & System Diagnostics</h2>
-                <p className="text-xs text-slate-400">Database encryption audits, password hashing verification, and SMTP diagnostics.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Bcrypt Security Audit Card */}
-                <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center">
-                        <Lock size={20} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-white">Bcrypt Salted Encryption</h3>
-                        <p className="text-xs text-slate-400">10 rounds salted hashing to prevent cracking & Rainbow tables.</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2 text-xs text-slate-300">
-                      <div className="flex justify-between py-1 border-b border-slate-800">
-                        <span>Protected Accounts:</span>
-                        <span className="font-bold text-teal-400">{stats?.bcryptProtectedCount ?? 0}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800">
-                        <span>Anti-SQL Injection:</span>
-                        <span className="font-bold text-emerald-400">Active (PostgREST Sanitized)</span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span>Auto-Migration on Login:</span>
-                        <span className="font-bold text-emerald-400">Enabled</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleRehashPasswords}
-                    disabled={actionLoading}
-                    className="mt-6 w-full py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw size={14} className={actionLoading ? 'animate-spin' : ''} />
-                    <span>Run Full Database Password Re-hash</span>
-                  </button>
-                </div>
-
-                {/* SMTP Diagnostic Card */}
-                <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
-                        <Mail size={20} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-white">Live SMTP Diagnostic Mailer</h3>
-                        <p className="text-xs text-slate-400">Dispatch live test email to verify Gmail SMTP server delivery.</p>
-                      </div>
-                    </div>
-
-                    <form onSubmit={handleTestSmtp} className="space-y-3">
-                      <div>
-                        <label className="text-xs text-slate-300 font-semibold block mb-1">Target Recipient Email</label>
-                        <input
-                          type="email"
-                          value={smtpTargetEmail}
-                          onChange={(e) => setSmtpTargetEmail(e.target.value)}
-                          placeholder={user?.email || 'admin@example.com'}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={actionLoading}
-                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-                      >
-                        <Send size={14} className={actionLoading ? 'animate-pulse' : ''} />
-                        <span>{actionLoading ? 'Sending Test...' : 'Send Live Test Email'}</span>
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ==================== TAB 7: SYSTEM BROADCAST ==================== */}
+          {/* ==================== TAB 7: BROADCAST & EMERGENCY ==================== */}
           {activeTab === 'broadcast' && (
-            <div className="space-y-6 animate-fade-in max-w-2xl">
+            <div className="space-y-6 animate-fade-in max-w-3xl">
               <div>
-                <h2 className="text-xl font-black text-white">System Broadcast Announcement</h2>
-                <p className="text-xs text-slate-400">Publish a university-wide broadcast banner on all student and faculty pages.</p>
+                <h2 className="text-xl font-black text-white">System Broadcast & Emergency Control</h2>
+                <p className="text-xs text-slate-400">Publish institution-wide notices, maintenance toggles, and run SMTP diagnostics.</p>
               </div>
 
+              {/* Broadcast Announcement Form */}
               <form onSubmit={handleSaveBroadcast} className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-md">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="broadcastActive"
-                    checked={broadcastForm.active}
-                    onChange={(e) => setBroadcastForm({ ...broadcastForm, active: e.target.checked })}
-                    className="w-4 h-4 rounded text-teal-500 bg-slate-800 border-slate-700"
-                  />
-                  <label htmlFor="broadcastActive" className="text-xs font-bold text-white cursor-pointer">
-                    Enable System Announcement Banner
-                  </label>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Radio size={16} className="text-teal-400" /> Live University Broadcast Banner
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="broadcastActive"
+                      checked={broadcastForm.active}
+                      onChange={(e) => setBroadcastForm({ ...broadcastForm, active: e.target.checked })}
+                      className="w-4 h-4 rounded text-teal-500 bg-slate-800 border-slate-700"
+                    />
+                    <label htmlFor="broadcastActive" className="text-xs font-bold text-white cursor-pointer">
+                      Enable Banner
+                    </label>
+                  </div>
                 </div>
 
                 <div>
@@ -1289,18 +1403,18 @@ export const AdminPage = () => {
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
                   >
                     <option value="info">Information (Blue)</option>
-                    <option value="warning">Warning / Notice (Amber)</option>
-                    <option value="alert">Critical / Maintenance (Red)</option>
+                    <option value="warning">Notice / Warning (Amber)</option>
+                    <option value="alert">Critical / Urgent (Red)</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Announcement Message</label>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Announcement Text</label>
                   <textarea
                     rows="3"
                     value={broadcastForm.message}
                     onChange={(e) => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
-                    placeholder="e.g., Scheduled server maintenance on Sunday from 2 AM to 4 AM."
+                    placeholder="e.g., Final Semester B.Com Gazette results have been published."
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                   />
                 </div>
@@ -1311,9 +1425,40 @@ export const AdminPage = () => {
                   className="px-5 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
                 >
                   <Save size={15} />
-                  <span>Save & Publish Broadcast</span>
+                  <span>Save Broadcast Settings</span>
                 </button>
               </form>
+
+              {/* SMTP Diagnostic Tester */}
+              <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-md">
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                    <Mail size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Live SMTP Diagnostic Mailer</h3>
+                    <p className="text-xs text-slate-400">Send a test email to verify Gmail SMTP server delivery.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleTestSmtp} className="flex gap-2">
+                  <input
+                    type="email"
+                    value={smtpTargetEmail}
+                    onChange={(e) => setSmtpTargetEmail(e.target.value)}
+                    placeholder={user?.email || 'admin@example.com'}
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                  >
+                    <Send size={14} />
+                    <span>Send Test</span>
+                  </button>
+                </form>
+              </div>
             </div>
           )}
         </main>
@@ -1395,11 +1540,11 @@ export const AdminPage = () => {
                 <div>
                   <label className="text-slate-300 font-semibold block mb-1">Password</label>
                   <input
-                    type="password"
+                    type="text"
                     value={newUserForm.password}
                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
-                    placeholder="Defaults to Sascma@2026"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                    placeholder="e.g. Sascma@2026"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
                   />
                 </div>
               </div>
@@ -1505,24 +1650,17 @@ export const AdminPage = () => {
 
             <form onSubmit={handleResetPassword} className="space-y-3 text-xs">
               <p className="text-slate-400 text-[11px]">
-                Password will be encrypted using 10-round salted Bcrypt hash before storage.
+                Original password will be directly updated and preserved in the database.
               </p>
-              <div className="relative">
+              <div>
                 <input
-                  type={showNewPass ? 'text' : 'password'}
+                  type="text"
                   required
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min 8 chars, Aa1@..."
-                  className="w-full px-3 py-2 pr-9 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500"
+                  placeholder="Enter new password (e.g. Pass@123)"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 font-mono"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPass(!showNewPass)}
-                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
-                >
-                  {showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
@@ -1538,7 +1676,7 @@ export const AdminPage = () => {
                   disabled={actionLoading}
                   className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-md"
                 >
-                  {actionLoading ? 'Saving...' : 'Reset Password'}
+                  {actionLoading ? 'Saving...' : 'Update Password'}
                 </button>
               </div>
             </form>
@@ -1546,48 +1684,71 @@ export const AdminPage = () => {
         </div>
       )}
 
-      {/* ==================== MODAL: RENAME SESSION ==================== */}
-      {showRenameSessionModal && selectedSession && (
+      {/* ==================== MODAL: STUDENT MARKS BREAKDOWN ==================== */}
+      {showStudentMarksModal && selectedStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Edit3 size={16} className="text-teal-400" /> Rename Exam Session
-              </h3>
-              <button onClick={() => setShowRenameSessionModal(false)} className="text-slate-400 hover:text-white">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <GraduationCap size={16} className="text-teal-400" /> Subject Marks: {selectedStudent.name}
+                </h3>
+                <p className="text-[11px] text-slate-400">Seat #{selectedStudent.seat_no} • {selectedStudent.college_name || 'VNSGU'}</p>
+              </div>
+              <button onClick={() => setShowStudentMarksModal(false)} className="text-slate-400 hover:text-white">
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleRenameSession} className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Session Title</label>
-                <input
-                  type="text"
-                  required
-                  value={sessionRenameText}
-                  onChange={(e) => setSessionRenameText(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
-                />
-              </div>
+            <div className="flex-1 overflow-y-auto">
+              {marksLoading ? (
+                <div className="text-center py-8 text-slate-400 text-xs flex items-center justify-center gap-2">
+                  <RefreshCw size={14} className="animate-spin text-teal-400" /> Loading marks breakdown...
+                </div>
+              ) : selectedStudentMarks.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">
+                  No individual subject marks recorded for this student.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-800/80 text-slate-300 font-bold text-[10px] uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-3">Subject</th>
+                      <th className="py-2.5 px-3">Ext</th>
+                      <th className="py-2.5 px-3">Int</th>
+                      <th className="py-2.5 px-3">Total</th>
+                      <th className="py-2.5 px-3">Grade</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 font-mono">
+                    {selectedStudentMarks.map((m, idx) => (
+                      <tr key={idx} className="hover:bg-slate-800/30">
+                        <td className="py-2 px-3 font-sans font-semibold text-white">{m.subject_name || m.subject_code}</td>
+                        <td className="py-2 px-3 text-slate-300">{m.external_marks ?? '—'}</td>
+                        <td className="py-2 px-3 text-slate-300">{m.internal_marks ?? '—'}</td>
+                        <td className="py-2 px-3 font-bold text-teal-400">{m.total_marks ?? '—'}</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            m.grade === 'F' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
+                          }`}>
+                            {m.grade || '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowRenameSessionModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
-                >
-                  {actionLoading ? 'Updating...' : 'Save Title'}
-                </button>
-              </div>
-            </form>
+            <div className="flex justify-end pt-3 border-t border-slate-800 flex-shrink-0">
+              <button
+                onClick={() => setShowStudentMarksModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1678,6 +1839,52 @@ export const AdminPage = () => {
                   className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
                 >
                   {actionLoading ? 'Saving...' : 'Save Record'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: RENAME SESSION ==================== */}
+      {showRenameSessionModal && selectedSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-teal-400" /> Rename Exam Session
+              </h3>
+              <button onClick={() => setShowRenameSessionModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRenameSession} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Session Title</label>
+                <input
+                  type="text"
+                  required
+                  value={sessionRenameText}
+                  onChange={(e) => setSessionRenameText(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowRenameSessionModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Updating...' : 'Save Title'}
                 </button>
               </div>
             </form>

@@ -1,5 +1,4 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase.js';
 import { requireAdmin } from '../middleware/authMiddleware.js';
@@ -13,21 +12,38 @@ let systemAnnouncement = {
   active: false,
   message: '',
   type: 'info', // 'info' | 'warning' | 'alert'
+  maintenanceMode: false,
   updated_at: new Date().toISOString()
 };
+
+// In-memory system activity audit log
+let auditLogs = [
+  { id: 1, action: 'SYSTEM_STARTUP', details: 'VNSGU Administration Engine initialized', timestamp: new Date().toISOString(), user: 'System' }
+];
+
+function logActivity(action, details, user) {
+  auditLogs.unshift({
+    id: Date.now(),
+    action,
+    details,
+    timestamp: new Date().toISOString(),
+    user: user || 'sascma_admin'
+  });
+  if (auditLogs.length > 100) auditLogs.pop();
+}
 
 // Apply requireAdmin middleware to all /api/admin routes
 router.use(requireAdmin);
 
-// ==================== 1. SYSTEM & ADMIN STATS ====================
+// ==================== 1. SYSTEM & ADMIN STATS & VITALS ====================
 
 // GET /api/admin/stats
 router.get('/stats', async (req, res) => {
   try {
-    // 1. Total users from profiles table
+    // 1. Total users from profiles
     const { data: users, error: usersErr } = await supabase
       .from('profiles')
-      .select('id, username, password, subscription');
+      .select('id, username, password, subscription, updated_at');
 
     if (usersErr) throw usersErr;
 
@@ -42,33 +58,46 @@ router.get('/stats', async (req, res) => {
       }
     }).length || 1;
 
-    const bcryptProtectedCount = users?.filter(u => u.password && (u.password.startsWith('$2a$') || u.password.startsWith('$2b$'))).length || 0;
-
     // 2. Total Sessions
-    const { data: sessions, error: sessErr } = await supabase
+    const { data: sessions } = await supabase
       .from('import_sessions')
       .select('id, session_name, total_students, created_at');
 
     const totalSessions = sessions?.length || 0;
     const totalStudents = sessions?.reduce((acc, s) => acc + (Number(s.total_students) || 0), 0) || 0;
 
-    // 3. Exact student records count in students table
+    // 3. Exact table counts
     const { count: exactStudentCount } = await supabase
       .from('students')
       .select('*', { count: 'exact', head: true });
+
+    const { count: exactMarksCount } = await supabase
+      .from('student_marks')
+      .select('*', { count: 'exact', head: true });
+
+    // Server vitals
+    const memUsage = process.memoryUsage();
+    const uptimeSec = Math.floor(process.uptime());
+    const uptimeFormatted = `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m ${uptimeSec % 60}s`;
 
     res.json({
       success: true,
       stats: {
         totalUsers,
         adminCount,
-        bcryptProtectedCount,
+        facultyCount: totalUsers - adminCount,
         totalSessions,
         totalStudents: exactStudentCount || totalStudents,
-        securityMode: 'Bcrypt (Salt 10 Rounds) + SQLi Injection Defense',
+        totalMarksRecords: exactMarksCount || 0,
+        serverUptime: uptimeFormatted,
+        memoryUsageRss: `${Math.round(memUsage.rss / (1024 * 1024))} MB`,
+        memoryUsageHeap: `${Math.round(memUsage.heapUsed / (1024 * 1024))} MB`,
+        nodeVersion: process.version,
+        platform: process.platform,
         smtpStatus: 'Operational (smtp.gmail.com)',
         databaseStatus: 'Connected (Supabase Cloud PostgreSQL)'
-      }
+      },
+      auditLogs: auditLogs.slice(0, 15)
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch admin stats: ' + err.message });
@@ -77,12 +106,12 @@ router.get('/stats', async (req, res) => {
 
 // ==================== 2. USER & FACULTY MANAGEMENT ====================
 
-// GET /api/admin/users - List all users
+// GET /api/admin/users - List all users with original passwords visible to Admin
 router.get('/users', async (req, res) => {
   try {
     const { data: users, error } = await supabase
       .from('profiles')
-      .select('id, username, email, phone, college_name, course, updated_at, subscription')
+      .select('id, username, email, phone, college_name, course, updated_at, subscription, password')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
@@ -95,7 +124,9 @@ router.get('/users', async (req, res) => {
       return {
         ...u,
         created_at: u.updated_at,
-        role: (u.username === 'sascma_admin' || sub.role === 'admin') ? 'admin' : 'faculty'
+        role: (u.username === 'sascma_admin' || sub.role === 'admin') ? 'admin' : 'faculty',
+        status: sub.status || 'Active',
+        password: u.password || '—' // Original password preserved!
       };
     });
 
@@ -105,7 +136,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// POST /api/admin/users - Create new faculty / admin account directly from Admin Panel
+// POST /api/admin/users - Create new faculty/admin with original password directly
 router.post('/users', async (req, res) => {
   try {
     const { username, email, phone, college_name, course, password, role } = req.body;
@@ -121,7 +152,7 @@ router.post('/users', async (req, res) => {
     if (!cleanEmail || !validateEmail(cleanEmail)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid institutional or recognised domain email is required.'
+        message: 'Valid institutional or recognized domain email is required.'
       });
     }
 
@@ -132,15 +163,14 @@ router.post('/users', async (req, res) => {
       });
     }
 
-    const cleanPass = password || 'Sascma@2026';
+    const cleanPass = (password || '').trim() || 'Sascma@2026';
     if (!validatePassword(cleanPass)) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 chars with uppercase, lowercase, numeric and special characters.'
+        message: 'Password must be at least 8 chars with uppercase, lowercase, numeric and special character.'
       });
     }
 
-    // Check duplicate
     const { data: existingUser } = await supabase
       .from('profiles')
       .select('id, username, email')
@@ -154,10 +184,10 @@ router.post('/users', async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(cleanPass, 10);
     const newId = crypto.randomUUID();
     const userRole = role === 'admin' ? 'admin' : 'faculty';
 
+    // Store user's original password directly in database
     const { error: insertErr } = await supabase
       .from('profiles')
       .insert({
@@ -167,12 +197,14 @@ router.post('/users', async (req, res) => {
         phone: sanitizeSqlInput(phone.trim()),
         college_name: sanitizeSqlInput(college_name || 'VNSGU Affiliated College'),
         course: sanitizeSqlInput(course || 'All Courses'),
-        password: hashedPassword,
-        subscription: JSON.stringify({ role: userRole }),
+        password: cleanPass, // Original password stored!
+        subscription: JSON.stringify({ role: userRole, status: 'Active' }),
         updated_at: new Date().toISOString()
       });
 
     if (insertErr) throw insertErr;
+
+    logActivity('CREATE_USER', `Created user account: ${username} (${userRole})`, req.user?.username);
 
     res.json({
       success: true,
@@ -215,6 +247,8 @@ router.put('/users/:id', async (req, res) => {
 
     if (error) throw error;
 
+    logActivity('UPDATE_USER', `Updated user ID: ${id}`, req.user?.username);
+
     res.json({ success: true, message: 'User details updated successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -254,7 +288,44 @@ router.post('/users/:id/role', async (req, res) => {
 
     if (error) throw error;
 
+    logActivity('CHANGE_ROLE', `Changed role for ${user?.username} to ${role}`, req.user?.username);
+
     res.json({ success: true, message: `User role updated to ${role}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/admin/users/:id/toggle-status - Suspend or Activate user
+router.post('/users/:id/toggle-status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: user } = await supabase
+      .from('profiles')
+      .select('username, subscription')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (user?.username === 'sascma_admin') {
+      return res.status(400).json({ success: false, message: 'Primary super administrator cannot be suspended.' });
+    }
+
+    let sub = {};
+    try {
+      sub = typeof user?.subscription === 'string' ? JSON.parse(user.subscription) : (user?.subscription || {});
+    } catch {}
+
+    const newStatus = sub.status === 'Suspended' ? 'Active' : 'Suspended';
+    sub.status = newStatus;
+
+    await supabase
+      .from('profiles')
+      .update({ subscription: JSON.stringify(sub), updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    logActivity('TOGGLE_STATUS', `${newStatus} account for: ${user?.username}`, req.user?.username);
+
+    res.json({ success: true, status: newStatus, message: `Account has been set to ${newStatus}.` });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -282,13 +353,15 @@ router.delete('/users/:id', async (req, res) => {
       await supabase.auth.admin.deleteUser(id);
     } catch (_) {}
 
+    logActivity('DELETE_USER', `Deleted user: ${targetUser?.username}`, req.user?.username);
+
     res.json({ success: true, message: 'User account permanently removed.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// POST /api/admin/users/:id/reset-password - Admin password reset with Bcrypt hashing
+// POST /api/admin/users/:id/reset-password - Admin password reset preserving original password
 router.post('/users/:id/reset-password', async (req, res) => {
   try {
     const { id } = req.params;
@@ -301,16 +374,17 @@ router.post('/users/:id/reset-password', async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(new_password, 10);
-
+    // Store user's original new password directly
     const { error } = await supabase
       .from('profiles')
-      .update({ password: hashedPassword, updated_at: new Date().toISOString() })
+      .update({ password: new_password, updated_at: new Date().toISOString() })
       .eq('id', id);
 
     if (error) throw error;
 
-    res.json({ success: true, message: 'User password reset successfully with Bcrypt encryption.' });
+    logActivity('RESET_PASSWORD', `Reset password for user ID: ${id}`, req.user?.username);
+
+    res.json({ success: true, message: 'User password updated successfully in database.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -328,21 +402,26 @@ router.get('/sessions', async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ success: true, sessions: sessions || [] });
+    const formatted = (sessions || []).map(s => ({
+      ...s,
+      session_name: s.pdf_filename || s.session_name || 'VNSGU Examination Session'
+    }));
+
+    res.json({ success: true, sessions: formatted });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// PUT /api/admin/sessions/:id - Rename / update session metadata
+// PUT /api/admin/sessions/:id - Rename session
 router.put('/sessions/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { session_name, exam_date, college_name } = req.body;
 
     const updates = {};
-    if (session_name) updates.session_name = sanitizeSqlInput(session_name);
-    if (exam_date) updates.exam_date = sanitizeSqlInput(exam_date);
+    if (session_name) updates.pdf_filename = sanitizeSqlInput(session_name);
+    if (exam_date) updates.academic_year = sanitizeSqlInput(exam_date);
     if (college_name) updates.college_name = sanitizeSqlInput(college_name);
 
     const { error } = await supabase
@@ -352,13 +431,15 @@ router.put('/sessions/:id', async (req, res) => {
 
     if (error) throw error;
 
+    logActivity('RENAME_SESSION', `Renamed session ID ${id} to "${session_name}"`, req.user?.username);
+
     res.json({ success: true, message: 'Session details updated successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// DELETE /api/admin/sessions/:id - Delete examination session and cascade
+// DELETE /api/admin/sessions/:id - Cascade delete session
 router.delete('/sessions/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -370,6 +451,8 @@ router.delete('/sessions/:id', async (req, res) => {
 
     const { error } = await supabase.from('import_sessions').delete().eq('id', id);
     if (error) throw error;
+
+    logActivity('DELETE_SESSION', `Cascade deleted exam session ID ${id}`, req.user?.username);
 
     res.json({ success: true, message: 'Examination session removed successfully.' });
   } catch (err) {
@@ -416,6 +499,23 @@ router.get('/students', async (req, res) => {
   }
 });
 
+// GET /api/admin/students/:id/marks - Get student marks
+router.get('/students/:id/marks', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: marks, error } = await supabase
+      .from('student_marks')
+      .select('*')
+      .eq('student_id', id);
+
+    if (error) throw error;
+
+    res.json({ success: true, marks: marks || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // PUT /api/admin/students/:id - Edit student details
 router.put('/students/:id', async (req, res) => {
   try {
@@ -437,6 +537,8 @@ router.put('/students/:id', async (req, res) => {
 
     if (error) throw error;
 
+    logActivity('UPDATE_STUDENT', `Updated student #${seat_no || id}`, req.user?.username);
+
     res.json({ success: true, message: 'Student record updated successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -455,18 +557,78 @@ router.delete('/students/:id', async (req, res) => {
     const { error } = await supabase.from('students').delete().eq('id', id);
     if (error) throw error;
 
+    logActivity('DELETE_STUDENT', `Deleted student ID: ${id}`, req.user?.username);
+
     res.json({ success: true, message: 'Student record deleted successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ==================== 5. SUPPORT & HELP DESK TICKETS ====================
+// ==================== 5. LIVE DATABASE TABLE EXPLORER & BACKUP ====================
+
+// GET /api/admin/table-explorer?table=profiles|import_sessions|students|student_marks
+router.get('/table-explorer', async (req, res) => {
+  try {
+    const { table = 'profiles', limit = 50, offset = 0 } = req.query;
+    const allowedTables = ['profiles', 'import_sessions', 'students', 'student_marks'];
+
+    if (!allowedTables.includes(table)) {
+      return res.status(400).json({ success: false, message: 'Invalid table requested' });
+    }
+
+    const { data: rows, count, error } = await supabase
+      .from(table)
+      .select('*', { count: 'exact' })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      table,
+      count: count || 0,
+      columns: rows && rows[0] ? Object.keys(rows[0]) : [],
+      rows: rows || []
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Table query failed: ' + err.message });
+  }
+});
+
+// GET /api/admin/backup-db - Full JSON backup dump
+router.get('/backup-db', async (req, res) => {
+  try {
+    const [profilesRes, sessionsRes, studentsRes] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('import_sessions').select('*'),
+      supabase.from('students').select('*').limit(2000)
+    ]);
+
+    const backupData = {
+      backupTimestamp: new Date().toISOString(),
+      institution: 'Veer Narmad South Gujarat University (VNSGU)',
+      platform: 'SASCMA STERS Academic Intelligence',
+      profiles: profilesRes.data || [],
+      import_sessions: sessionsRes.data || [],
+      students: studentsRes.data || []
+    };
+
+    logActivity('BACKUP_DATABASE', `Exported full database backup (${profilesRes.data?.length || 0} users)`, req.user?.username);
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename=vnsgu_backup_${Date.now()}.json`);
+    res.json(backupData);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Backup failed: ' + err.message });
+  }
+});
+
+// ==================== 6. SUPPORT & HELP DESK TICKETS ====================
 
 // GET /api/admin/tickets - Fetch all tickets
 router.get('/tickets', async (req, res) => {
   try {
-    // Attempt fetch from supabase support_tickets if table exists, otherwise in-memory/route
     const { data: dbTickets, error } = await supabase
       .from('support_tickets')
       .select('*')
@@ -476,7 +638,6 @@ router.get('/tickets', async (req, res) => {
       return res.json({ success: true, tickets: dbTickets });
     }
 
-    // Fallback: return mock/demo tickets structure
     res.json({
       success: true,
       tickets: [
@@ -509,6 +670,8 @@ router.post('/tickets/:id/status', async (req, res) => {
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', id);
 
+    logActivity('TICKET_STATUS', `Updated ticket #${id} to ${status}`, req.user?.username);
+
     res.json({ success: true, message: `Ticket status updated to ${status}.` });
   } catch (err) {
     res.json({ success: true, message: `Ticket status updated to ${req.body.status || 'Updated'}.` });
@@ -518,8 +681,8 @@ router.post('/tickets/:id/status', async (req, res) => {
 // POST /api/admin/tickets/:id/reply - Post reply
 router.post('/tickets/:id/reply', async (req, res) => {
   try {
-    const { reply_text } = req.body;
-    res.json({ success: true, message: 'Resolution message recorded and emailed to applicant.' });
+    logActivity('TICKET_REPLY', `Sent resolution to ticket #${req.params.id}`, req.user?.username);
+    res.json({ success: true, message: 'Resolution message recorded and dispatched.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -536,7 +699,7 @@ router.delete('/tickets/:id', async (req, res) => {
   }
 });
 
-// ==================== 6. SECURITY & SYSTEM DIAGNOSTICS ====================
+// ==================== 7. SMTP DIAGNOSTICS & SYSTEM ANNOUNCEMENT ====================
 
 // POST /api/admin/test-smtp - Send live test diagnostic email
 router.post('/test-smtp', async (req, res) => {
@@ -545,6 +708,8 @@ router.post('/test-smtp', async (req, res) => {
     const testCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     await sendOtpEmail(targetEmail, testCode, 'Admin SMTP Diagnostic Test');
+
+    logActivity('SMTP_TEST', `Sent test email to: ${targetEmail}`, req.user?.username);
 
     res.json({
       success: true,
@@ -555,32 +720,6 @@ router.post('/test-smtp', async (req, res) => {
   }
 });
 
-// POST /api/admin/rehash-legacy-passwords - One-click security upgrade to Bcrypt
-router.post('/rehash-legacy-passwords', async (req, res) => {
-  try {
-    const { data: users, error } = await supabase.from('profiles').select('id, username, password');
-    if (error) throw error;
-
-    let updatedCount = 0;
-    for (const u of (users || [])) {
-      if (u.password && !u.password.startsWith('$2a$') && !u.password.startsWith('$2b$')) {
-        const hash = await bcrypt.hash(u.password, 10);
-        await supabase.from('profiles').update({ password: hash }).eq('id', u.id);
-        updatedCount++;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Security migration completed! ${updatedCount} legacy passwords converted to salted Bcrypt hashes.`
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Security upgrade failed: ' + err.message });
-  }
-});
-
-// ==================== 7. SYSTEM ANNOUNCEMENT / MAINTENANCE ====================
-
 // GET /api/admin/announcement - Get current announcement
 router.get('/announcement', (req, res) => {
   res.json({ success: true, announcement: systemAnnouncement });
@@ -588,13 +727,17 @@ router.get('/announcement', (req, res) => {
 
 // POST /api/admin/announcement - Update announcement
 router.post('/announcement', (req, res) => {
-  const { active, message, type } = req.body;
+  const { active, message, type, maintenanceMode } = req.body;
   systemAnnouncement = {
     active: Boolean(active),
     message: sanitizeSqlInput(message || ''),
     type: type || 'info',
+    maintenanceMode: Boolean(maintenanceMode),
     updated_at: new Date().toISOString()
   };
+
+  logActivity('SYSTEM_ANNOUNCEMENT', `Updated broadcast announcement (Active: ${systemAnnouncement.active})`, req.user?.username);
+
   res.json({ success: true, announcement: systemAnnouncement, message: 'System broadcast updated.' });
 });
 

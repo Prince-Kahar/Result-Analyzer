@@ -269,5 +269,8 @@ export const api = {
   replyAdminTicket: (id, reply_text) => request('/admin/tickets/' + id + '/reply', { method: 'POST', body: JSON.stringify({ reply_text }) }),
   deleteAdminTicket: (id) => request('/admin/tickets/' + id, { method: 'DELETE' }),
   getAdminAnnouncement: () => request('/admin/announcement'),
-  setAdminAnnouncement: (data) => request('/admin/announcement', { method: 'POST', body: JSON.stringify(data) })
+  setAdminAnnouncement: (data) => request('/admin/announcement', { method: 'POST', body: JSON.stringify(data) }),
+  toggleAdminUserStatus: (id) => request('/admin/users/' + id + '/toggle-status', { method: 'POST' }),
+  getAdminStudentMarks: (id) => request('/admin/students/' + id + '/marks'),
+  getAdminTableExplorer: (table, params = {}) => request('/admin/table-explorer?table=' + table + '&' + new URLSearchParams(params).toString())
 };
