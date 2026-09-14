@@ -9,29 +9,51 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'SASCMA_STERS_VNSGU_JWT_SECRET_2026';
 const inMemoryOtps = new Map();
 
-// ==================== VALIDATION HELPER FUNCTIONS ====================
+// ==================== SECURITY & VALIDATION HELPERS ====================
 
+// PostgREST / SQL Injection prevention sanitizer
+export const sanitizeSqlInput = (str) => {
+  if (!str || typeof str !== 'string') return '';
+  return str.replace(/[(),'";\\]/g, '').trim();
+};
+
+// 1. Username validation: minimum 6 characters, max 30, no spaces, only alphanumeric and - / _
 export const validateUsername = (username) => {
   if (!username || typeof username !== 'string') return false;
-  // No spaces, only alphanumeric and - or _ allowed, 3-30 chars
-  return /^[a-zA-Z0-9_-]{3,30}$/.test(username);
+  const clean = username.trim();
+  if (clean.length < 6 || clean.length > 30) return false;
+  if (/\s/.test(clean)) return false;
+  if (!/^[a-zA-Z0-9_-]+$/.test(clean)) return false;
+  if (!/[a-zA-Z]/.test(clean)) return false; // At least one alphabet
+  return true;
 };
 
+// 2. Email validation: standard RFC format with verified domain structure
 export const validateEmail = (email) => {
   if (!email || typeof email !== 'string') return false;
-  const cleanEmail = email.trim();
-  if (/\s/.test(cleanEmail)) return false;
-  // RFC standard email pattern with proper domain and min 2-letter TLD
-  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-  if (!emailRegex.test(cleanEmail)) return false;
-  const parts = cleanEmail.split('@');
+  const clean = email.trim().toLowerCase();
+  if (/\s/.test(clean)) return false;
+  if (!clean.includes('@')) return false;
+  const parts = clean.split('@');
   if (parts.length !== 2) return false;
-  const domainParts = parts[1].split('.');
+  const [local, domain] = parts;
+  if (!local || local.length === 0 || !domain || domain.length < 4) return false;
+
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(clean)) return false;
+
+  const domainParts = domain.split('.');
   if (domainParts.length < 2) return false;
   const tld = domainParts[domainParts.length - 1];
-  return /^[a-zA-Z]{2,}$/.test(tld);
+  if (!/^[a-zA-Z]{2,10}$/.test(tld)) return false;
+
+  const mainDomain = domainParts[domainParts.length - 2];
+  if (!mainDomain || mainDomain.length < 2) return false;
+
+  return true;
 };
 
+// 3. Mobile Number validation: exactly 10 digits, starts with 6, 7, 8, 9
 export const cleanPhone = (phone) => {
   if (!phone || typeof phone !== 'string') return '';
   let cleaned = phone.replace(/\D/g, '');
@@ -46,10 +68,10 @@ export const cleanPhone = (phone) => {
 export const validatePhone = (phone) => {
   if (!phone || typeof phone !== 'string') return false;
   const cleaned = cleanPhone(phone);
-  // Valid Indian mobile number: starts with 6, 7, 8, 9 and has exactly 10 digits
   return /^[6-9]\d{9}$/.test(cleaned);
 };
 
+// 4. Password validation: min 8 chars, upper, lower, num, special
 export const validatePassword = (password) => {
   if (!password || typeof password !== 'string') return false;
   if (password.length < 8) return false;
@@ -62,7 +84,7 @@ export const validatePassword = (password) => {
 
 // ==================== REAL-TIME VALIDATION ENDPOINTS ====================
 
-// GET /api/auth/check-username - Real-time username uniqueness check
+// GET /api/auth/check-username - Real-time username check (min 6 characters)
 router.get('/check-username', async (req, res) => {
   try {
     const { username } = req.query;
@@ -70,12 +92,12 @@ router.get('/check-username', async (req, res) => {
       return res.status(400).json({ available: false, valid: false, message: 'Username is required' });
     }
 
-    const cleanUsername = username.trim();
+    const cleanUsername = sanitizeSqlInput(username);
     if (!validateUsername(cleanUsername)) {
       return res.json({
         available: false,
         valid: false,
-        message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
+        message: 'Username must be at least 6 characters long (no spaces, only letters, numbers, - and _).'
       });
     }
 
@@ -108,7 +130,7 @@ router.get('/check-username', async (req, res) => {
   }
 });
 
-// GET /api/auth/check-email - Real-time email uniqueness & format check
+// GET /api/auth/check-email - Real-time email uniqueness & domain check
 router.get('/check-email', async (req, res) => {
   try {
     const { email } = req.query;
@@ -116,12 +138,20 @@ router.get('/check-email', async (req, res) => {
       return res.status(400).json({ available: false, valid: false, message: 'Email is required' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = sanitizeSqlInput(email.toLowerCase());
+    if (!cleanEmail.includes('@')) {
+      return res.json({
+        available: false,
+        valid: false,
+        message: "Email address must contain '@' symbol (e.g. name@gmail.com)."
+      });
+    }
+
     if (!validateEmail(cleanEmail)) {
       return res.json({
         available: false,
         valid: false,
-        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+        message: 'Please enter a valid email domain (e.g. @gmail.com or @vnsgu.ac.in).'
       });
     }
 
@@ -180,34 +210,50 @@ router.get('/check-phone', async (req, res) => {
 
 // ==================== AUTHENTICATION & OTP ROUTES ====================
 
-// POST /api/auth/send-otp - Strict check: OTP only generated/sent if email, username & phone pass validation
+// POST /api/auth/send-otp
+// STRICT PRE-CHECK: Email, Mobile Number, and Username MUST be 100% valid & unique before sending OTP!
 router.post('/send-otp', async (req, res) => {
   try {
     const { email, purpose, username, phone } = req.body;
+    const isRegistration = !purpose || purpose.toLowerCase().includes('regist') || purpose.toLowerCase().includes('faculty');
+
     if (!email) return res.status(400).json({ success: false, message: 'Institutional email is required' });
 
-    const cleanEmail = email.trim().toLowerCase();
-    if (!validateEmail(cleanEmail)) {
+    const cleanEmail = sanitizeSqlInput(email.toLowerCase());
+    if (!cleanEmail.includes('@')) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+        message: "Email address must contain '@' symbol (e.g. name@gmail.com)."
       });
     }
 
-    const isRegistration = !purpose || purpose.toLowerCase().includes('regist') || purpose.toLowerCase().includes('faculty');
+    if (!validateEmail(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email domain (e.g. @gmail.com or @vnsgu.ac.in).'
+      });
+    }
 
-    // 1. STRICT REGISTRATION CHECKS:
     if (isRegistration) {
-      // Validate mobile number if provided
-      if (phone && !validatePhone(phone)) {
+      // 1. Validate Mobile Number (Mandatory for registration OTP)
+      if (!phone || !validatePhone(phone)) {
         return res.status(400).json({
           success: false,
-          message: 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.'
+          message: 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9 before requesting OTP.'
         });
       }
 
-      // Check email in profiles - agar database me ho to OTP send NAHI hona chahiye
-      const { data: existingEmail, error: emailErr } = await supabase
+      // 2. Validate Username (Mandatory minimum 6 characters)
+      if (!username || !validateUsername(username)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Username must be at least 6 characters long (no spaces, only letters, numbers, - and _).'
+        });
+      }
+      const cleanUsername = sanitizeSqlInput(username);
+
+      // 3. Database Check: Email must not be already registered
+      const { data: existingEmail } = await supabase
         .from('profiles')
         .select('id, email')
         .ilike('email', cleanEmail)
@@ -220,31 +266,21 @@ router.post('/send-otp', async (req, res) => {
         });
       }
 
-      // Check username in profiles if provided
-      if (username && typeof username === 'string') {
-        const cleanUsername = username.trim();
-        if (!validateUsername(cleanUsername)) {
-          return res.status(400).json({
-            success: false,
-            message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
-          });
-        }
+      // 4. Database Check: Username must not be already taken
+      const { data: existingUser } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .ilike('username', cleanUsername)
+        .maybeSingle();
 
-        const { data: existingUser, error: userErr } = await supabase
-          .from('profiles')
-          .select('id, username')
-          .ilike('username', cleanUsername)
-          .maybeSingle();
-
-        if (existingUser) {
-          return res.status(400).json({
-            success: false,
-            message: `Username "${cleanUsername}" is already taken in our database. Please choose another username.`
-          });
-        }
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: `Username "${cleanUsername}" is already taken in our database. Please choose another username.`
+        });
       }
     } else if (purpose && purpose.toLowerCase().includes('reset')) {
-      // Forgot Password: Email MUST exist in database
+      // Forgot Password: Email MUST exist
       const { data: existingEmail } = await supabase
         .from('profiles')
         .select('id, email')
@@ -259,7 +295,7 @@ router.post('/send-otp', async (req, res) => {
       }
     }
 
-    // 2. Generate 6-digit OTP (ONLY reached if all database & format checks pass)
+    // 5. Generate 6-digit OTP ONLY after passing all checks
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     inMemoryOtps.set(cleanEmail, {
       otp,
@@ -296,7 +332,7 @@ router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP required' });
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = sanitizeSqlInput(email.toLowerCase());
     const record = inMemoryOtps.get(cleanEmail);
     if (!record) return res.status(400).json({ success: false, message: 'No OTP requested for this email' });
     if (Date.now() > record.expiresAt) {
@@ -315,6 +351,7 @@ router.post('/verify-otp', async (req, res) => {
 });
 
 // POST /api/auth/register
+// Password is cryptographically hashed with salted bcrypt (10 rounds)
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password, college_name, phone, otp } = req.body;
@@ -322,26 +359,26 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username, email and password are required' });
     }
 
-    const cleanUsername = username.trim();
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = sanitizeSqlInput(username);
+    const cleanEmail = sanitizeSqlInput(email.toLowerCase());
 
-    // 1. Username validation: No spaces, only alphanumeric and - / _
+    // 1. Username validation: min 6 chars
     if (!validateUsername(cleanUsername)) {
       return res.status(400).json({
         success: false,
-        message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
+        message: 'Username must be at least 6 characters long (no spaces, only letters, numbers, - and _).'
       });
     }
 
-    // 2. Email validation: Valid format
+    // 2. Email validation: valid domain structure
     if (!validateEmail(cleanEmail)) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+        message: 'Please enter a valid email domain (e.g. @gmail.com or @vnsgu.ac.in).'
       });
     }
 
-    // 3. Mobile Number validation: Valid 10-digit number
+    // 3. Mobile Number validation: exactly 10 digits
     if (!phone || !validatePhone(phone)) {
       return res.status(400).json({
         success: false,
@@ -392,18 +429,31 @@ router.post('/register', async (req, res) => {
     // Consume OTP once verified
     inMemoryOtps.delete(cleanEmail);
 
-    // 6. Double check if user already exists in profiles
+    // 6. Double check uniqueness in database
+    const { data: existingEmail } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (existingEmail) {
+      return res.status(400).json({ success: false, message: 'This email is already registered. Please sign in.' });
+    }
+
     const { data: existingUser } = await supabase
       .from('profiles')
-      .select('id, username, email')
-      .or(`email.ilike.${cleanEmail},username.ilike.${cleanUsername}`)
+      .select('id')
+      .ilike('username', cleanUsername)
       .maybeSingle();
 
     if (existingUser) {
-      return res.status(400).json({ success: false, message: 'Username or Email already registered. Please sign in.' });
+      return res.status(400).json({ success: false, message: `Username "${cleanUsername}" is already taken.` });
     }
 
-    // 7. Create user in Supabase Auth (triggers profile creation)
+    // 7. BCRYPT HASHING: Salted 10 rounds to prevent password cracking
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 8. Create user in Supabase Auth
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email: cleanEmail,
       password: password,
@@ -416,15 +466,15 @@ router.post('/register', async (req, res) => {
 
     const userId = authData.user.id;
 
-    // 8. Update profile with custom faculty details including verified phone
+    // 9. Update profile with Bcrypt hashed password and clean inputs
     await supabase
       .from('profiles')
       .update({
         username: cleanUsername,
-        college_name: college_name || 'VNSGU Affiliated College',
+        college_name: sanitizeSqlInput(college_name) || 'VNSGU Affiliated College',
         course: 'All Courses',
         phone: cleanedPhone,
-        password: password,
+        password: hashedPassword, // Store bcrypt hash, never plaintext!
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
@@ -435,7 +485,7 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // 9. Automated Welcome Email dispatch
+    // 10. Automated Welcome Email dispatch
     sendWelcomeEmail(cleanEmail, cleanUsername, college_name || 'VNSGU Affiliated College')
       .then(() => console.log(`[Welcome Email Sent] To ${cleanEmail}`))
       .catch((e) => console.warn(`[Welcome Email Error] ${e.message}`));
@@ -449,6 +499,7 @@ router.post('/register', async (req, res) => {
         username: cleanUsername,
         email: cleanEmail,
         phone: cleanedPhone,
+        role: 'user',
         college_name: college_name || 'VNSGU Affiliated College'
       }
     });
@@ -459,6 +510,7 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/auth/login
+// Supports Bcrypt hash verification + automatic legacy plaintext password upgrade
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -466,10 +518,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username/email and password required' });
     }
 
-    const cleanInput = username.trim();
+    const cleanInput = sanitizeSqlInput(username);
     const cleanLower = cleanInput.toLowerCase();
 
-    // Query profiles in Supabase
+    // Query profiles in Supabase safely
     let query = supabase.from('profiles').select('*');
     if (cleanInput.includes('@')) {
       query = query.ilike('email', cleanLower);
@@ -485,14 +537,29 @@ router.post('/login', async (req, res) => {
 
     const user = profiles[0];
 
-    // Password verification (plain text or bcrypt hash fallback)
-    const isPasswordValid = user.password === password || (user.password_hash && await bcrypt.compare(password, user.password_hash));
+    // Password verification with Bcrypt and legacy upgrade
+    let isPasswordValid = false;
+    if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
+      isPasswordValid = await bcrypt.compare(password, user.password);
+    } else {
+      // Legacy plaintext password check
+      isPasswordValid = (user.password === password);
+      if (isPasswordValid) {
+        // Automatically upgrade to salted bcrypt hash for permanent security!
+        const newHash = await bcrypt.hash(password, 10);
+        await supabase.from('profiles').update({ password: newHash }).eq('id', user.id);
+        console.log(`[Security Auto-Upgrade] Converted legacy password to Bcrypt for: ${user.username}`);
+      }
+    }
+
     if (!isPasswordValid) {
       return res.status(401).json({ success: false, message: 'Incorrect password entered.' });
     }
 
+    const role = (user.username === 'sascma_admin' || user.role === 'admin') ? 'admin' : 'user';
+
     const token = jwt.sign(
-      { id: user.id, username: user.username, email: user.email, role: user.username === 'sascma_admin' ? 'admin' : 'user' },
+      { id: user.id, username: user.username, email: user.email, role },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -506,7 +573,8 @@ router.post('/login', async (req, res) => {
         username: user.username,
         email: user.email,
         phone: user.phone || '',
-        role: user.username === 'sascma_admin' ? 'admin' : 'user'
+        role,
+        college_name: user.college_name || ''
       }
     });
   } catch (err) {
@@ -528,7 +596,7 @@ router.post('/update-profile', requireAuth, async (req, res) => {
       }
       updateData.phone = cleanPhone(phone);
     }
-    if (college_name) updateData.college_name = college_name;
+    if (college_name) updateData.college_name = sanitizeSqlInput(college_name);
 
     const { error } = await supabase
       .from('profiles')
@@ -555,13 +623,14 @@ router.post('/update-password', requireAuth, async (req, res) => {
       });
     }
 
+    const hashedPassword = await bcrypt.hash(new_password, 10);
     const { error } = await supabase
       .from('profiles')
-      .update({ password: new_password })
+      .update({ password: hashedPassword })
       .eq('id', req.user.id);
 
     if (error) return res.status(500).json({ success: false, message: error.message });
-    res.json({ success: true, message: 'Password updated successfully.' });
+    res.json({ success: true, message: 'Password updated successfully with Bcrypt encryption.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

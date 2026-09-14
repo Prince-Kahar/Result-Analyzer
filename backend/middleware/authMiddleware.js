@@ -22,6 +22,15 @@ export const requireAuth = (req, res, next) => {
   }
 };
 
+export const requireAdmin = (req, res, next) => {
+  requireAuth(req, res, () => {
+    if (req.user && (req.user.role === 'admin' || req.user.username === 'sascma_admin')) {
+      return next();
+    }
+    return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required.' });
+  });
+};
+
 export const optionalAuth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (authHeader) {

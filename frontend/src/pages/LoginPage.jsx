@@ -30,12 +30,13 @@ export const LoginPage = () => {
   const [regPhone, setRegPhone] = useState('');
   const [regCollege, setRegCollege] = useState('');
 
-  // Real-time Username Check State
+  // Real-time Username Check State (Min 6 Characters)
   const [usernameCheckLoading, setUsernameCheckLoading] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState(null); // null | true | false
   const [usernameMsg, setUsernameMsg] = useState('');
 
-  // Real-time Email Check State
+  // Real-time Email Check State (onBlur & Domain Verification)
+  const [emailTouched, setEmailTouched] = useState(false);
   const [emailCheckLoading, setEmailCheckLoading] = useState(false);
   const [emailAvailable, setEmailAvailable] = useState(null); // null | true | false
   const [emailMsg, setEmailMsg] = useState('');
@@ -63,14 +64,14 @@ export const LoginPage = () => {
 
   // ==================== VALIDATION RULES ====================
 
-  // 1. Username Validation
+  // 1. Username Validation: Minimum 6 characters, max 30, no spaces, only - and _
   const hasNoSpaces = !/\s/.test(regUsername);
   const isUsernameCharsValid = /^[a-zA-Z0-9_-]*$/.test(regUsername);
-  const isUsernameFormatValid = regUsername.length >= 3 && regUsername.length <= 30 && hasNoSpaces && /^[a-zA-Z0-9_-]+$/.test(regUsername);
+  const isUsernameFormatValid = regUsername.length >= 6 && regUsername.length <= 30 && hasNoSpaces && /^[a-zA-Z0-9_-]+$/.test(regUsername) && /[a-zA-Z]/.test(regUsername);
 
-  // Real-time Username Check against Database (Debounced 350ms)
+  // Real-time Username Check against Database (Debounced 350ms, min 6 characters)
   useEffect(() => {
-    if (!regUsername || regUsername.trim().length < 3 || !hasNoSpaces || !isUsernameCharsValid) {
+    if (!regUsername || regUsername.trim().length < 6 || !hasNoSpaces || !isUsernameCharsValid) {
       setUsernameCheckLoading(false);
       setUsernameAvailable(null);
       setUsernameMsg('');
@@ -100,14 +101,17 @@ export const LoginPage = () => {
     return () => clearTimeout(timer);
   }, [regUsername, hasNoSpaces, isUsernameCharsValid]);
 
-  // 2. Email Validation
-  const cleanEmailStr = regEmail.trim();
+  // 2. Email Validation: Must contain @, no spaces, and valid domain after @ (e.g. gmail.com, vnsgu.ac.in)
+  const cleanEmailStr = regEmail.trim().toLowerCase();
   const hasEmailNoSpaces = !/\s/.test(cleanEmailStr);
-  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  const hasEmailAt = cleanEmailStr.includes('@');
   const emailParts = cleanEmailStr.split('@');
-  const emailDomainParts = emailParts[1] ? emailParts[1].split('.') : [];
+  const emailLocal = emailParts[0] || '';
+  const emailDomain = emailParts[1] || '';
+  const emailDomainParts = emailDomain.split('.');
   const emailTld = emailDomainParts.length >= 2 ? emailDomainParts[emailDomainParts.length - 1] : '';
-  const isEmailFormatValid = hasEmailNoSpaces && emailRegex.test(cleanEmailStr) && /^[a-zA-Z]{2,}$/.test(emailTld);
+  const hasValidDomain = emailDomainParts.length >= 2 && emailDomainParts[emailDomainParts.length - 2].length >= 2 && /^[a-zA-Z]{2,10}$/.test(emailTld);
+  const isEmailFormatValid = hasEmailNoSpaces && hasEmailAt && emailLocal.length >= 1 && hasValidDomain;
 
   // Real-time Email Check against Database (Debounced 400ms)
   useEffect(() => {
@@ -147,7 +151,6 @@ export const LoginPage = () => {
 
   const handlePhoneChange = (e) => {
     let val = e.target.value.replace(/\D/g, '');
-    // Strip leading 91 or 0 if pasted
     if (val.startsWith('91') && val.length > 10) {
       val = val.slice(2);
     } else if (val.startsWith('0') && val.length > 10) {
@@ -164,7 +167,7 @@ export const LoginPage = () => {
   const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(regPassword);
   const isPasswordValid = hasMinLen && hasUpper && hasLower && hasNumber && hasSpecial;
 
-  // Can request OTP: Valid format, database confirms unique, valid email, valid mobile, valid password, college filled
+  // Can request OTP: all 5 conditions strictly met
   const canRequestOtp = isUsernameFormatValid &&
     usernameAvailable === true &&
     !usernameCheckLoading &&
@@ -180,12 +183,14 @@ export const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      await login(loginUsername, loginPassword);
+      const res = await login(loginUsername, loginPassword);
       await refreshSessions();
       const searchParams = new URLSearchParams(location.search);
       const redirectUrl = searchParams.get('redirect');
       if (redirectUrl) {
         navigate(redirectUrl);
+      } else if (res?.user?.role === 'admin' || res?.user?.username === 'sascma_admin') {
+        navigate('/admin');
       } else if (!hasUploaded) {
         navigate('/upload');
       } else {
@@ -199,28 +204,40 @@ export const LoginPage = () => {
   };
 
   const handleSendRegisterOtp = async () => {
+    setError('');
+
+    // Pre-checks: mobile number, email, username MUST be 100% verified before sending OTP
+    if (!regUsername || regUsername.trim().length < 6) {
+      return setError('Username must be at least 6 characters long (no spaces, only letters, numbers, - and _).');
+    }
+    if (!isUsernameFormatValid) {
+      return setError('Username format invalid. Must be at least 6 characters with letters, numbers, - or _.');
+    }
     if (usernameAvailable === false) {
-      return setError(`Username "${regUsername.trim()}" is already taken in our database. Please choose a different username.`);
+      return setError(`Username "${regUsername.trim()}" is already taken. Please choose another username.`);
+    }
+
+    if (!cleanEmailStr.includes('@')) {
+      return setError("Email address must contain '@' symbol (e.g. name@gmail.com).");
     }
     if (!isEmailFormatValid) {
-      return setError('Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).');
+      return setError('Please enter a valid email domain (e.g. @gmail.com or @vnsgu.ac.in).');
     }
     if (emailAvailable === false) {
       return setError('This email is already registered in our database. Please sign in or use Forgot Password.');
     }
+
     if (!isPhoneValid) {
       return setError('Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.');
     }
-    if (!canRequestOtp) {
-      if (!isUsernameFormatValid) return setError('Please enter a valid username (no spaces, only letters, numbers, hyphens, and underscores).');
-      if (usernameAvailable !== true) return setError('Please wait for username availability check.');
-      if (emailAvailable !== true) return setError('Please wait for email check.');
-      if (!isPasswordValid) return setError('Password must meet all 5 security requirements.');
-      if (!regCollege.trim()) return setError('Please enter your college/department name.');
-      return;
+
+    if (!isPasswordValid) {
+      return setError('Password must meet all 5 security requirements.');
+    }
+    if (!regCollege.trim()) {
+      return setError('Please enter your college/department name.');
     }
 
-    setError('');
     setSuccessMsg('');
     setRegOtpLoading(true);
 
@@ -229,11 +246,8 @@ export const LoginPage = () => {
       setRegOtpSent(true);
       setRegCountdown(60);
       setSuccessMsg(res.message || `Verification OTP has been sent to ${cleanEmailStr}. Please check your inbox.`);
-      if (res.demoOtp) {
-        console.log('Demo OTP (development/fallback):', res.demoOtp);
-      }
     } catch (err) {
-      setError(err.message || 'Failed to dispatch verification code. Please check email address.');
+      setError(err.message || 'Failed to dispatch verification code. Please check your credentials.');
     } finally {
       setRegOtpLoading(false);
     }
@@ -243,14 +257,16 @@ export const LoginPage = () => {
     e.preventDefault();
     setError('');
 
+    if (!isUsernameFormatValid) {
+      return setError('Username must be at least 6 characters.');
+    }
     if (usernameAvailable === false) {
       return setError('Username is already taken in our database. Please choose another username.');
     }
 
-    if (!isEmailFormatValid) {
+    if (!cleanEmailStr.includes('@') || !isEmailFormatValid) {
       return setError('Please enter a valid institutional email address.');
     }
-
     if (emailAvailable === false) {
       return setError('This email is already registered in our database. Please log in.');
     }
@@ -449,11 +465,11 @@ export const LoginPage = () => {
         {/* ===================== REGISTRATION FORM WITH OTP & REAL-TIME CHECKS ===================== */}
         {tab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-4 text-xs">
-            {/* 1. Username Input with Real-time DB Uniqueness Check */}
+            {/* 1. Username Input (Minimum 6 Characters) */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-slate-300 font-semibold">Username</label>
-                <span className="text-[10px] text-slate-400">No spaces, only - and _</span>
+                <span className="text-[10px] text-slate-400">Min. 6 chars (letters, 0-9, -, _)</span>
               </div>
               <div className="relative">
                 <input
@@ -461,7 +477,7 @@ export const LoginPage = () => {
                   required
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
-                  placeholder="prof_sharma or vnsgu-evaluator"
+                  placeholder="prof_sharma or evaluator_vnsgu"
                   className={`w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 focus:outline-none transition-colors ${
                     regUsername.length === 0
                       ? 'border-slate-700 focus:border-teal-500'
@@ -497,9 +513,9 @@ export const LoginPage = () => {
                     <span className="text-rose-400 flex items-center gap-1">
                       <AlertCircle size={12} /> Only letters, numbers, hyphens (-), and underscores (_) are allowed.
                     </span>
-                  ) : regUsername.length < 3 ? (
+                  ) : regUsername.length < 6 ? (
                     <span className="text-amber-400 flex items-center gap-1">
-                      <AlertCircle size={12} /> Must be at least 3 characters.
+                      <AlertCircle size={12} /> Must be at least 6 characters ({6 - regUsername.length} more needed).
                     </span>
                   ) : usernameCheckLoading ? (
                     <span className="text-teal-400 flex items-center gap-1">
@@ -518,25 +534,26 @@ export const LoginPage = () => {
               )}
             </div>
 
-            {/* 2. Institutional Email with Strict Format & DB Check */}
+            {/* 2. Institutional Email with onBlur check and Strict Domain validation */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-slate-300 font-semibold">Institutional Email</label>
-                <span className="text-[10px] text-slate-400">Must be valid format</span>
+                <span className="text-[10px] text-slate-400">e.g. @gmail.com or @vnsgu.ac.in</span>
               </div>
               <div className="relative">
                 <input
                   type="email"
                   required
                   value={regEmail}
-                  onChange={(e) => setRegEmail(e.target.value)}
-                  placeholder="faculty@college.vnsgu.ac.in"
+                  onBlur={() => setEmailTouched(true)}
+                  onChange={(e) => { setRegEmail(e.target.value); setEmailTouched(false); }}
+                  placeholder="faculty@college.vnsgu.ac.in or name@gmail.com"
                   className={`w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 focus:outline-none transition-colors ${
                     cleanEmailStr.length === 0
                       ? 'border-slate-700 focus:border-teal-500'
-                      : !isEmailFormatValid || emailAvailable === false
+                      : (emailTouched && (!hasEmailAt || !isEmailFormatValid)) || emailAvailable === false
                       ? 'border-rose-500/70 focus:border-rose-400'
-                      : emailAvailable === true
+                      : isEmailFormatValid && emailAvailable === true
                       ? 'border-emerald-500/60 focus:border-emerald-400'
                       : 'border-slate-700 focus:border-teal-500'
                   }`}
@@ -548,23 +565,27 @@ export const LoginPage = () => {
                       <RefreshCw size={14} className="animate-spin text-teal-400" />
                     ) : isEmailFormatValid && emailAvailable === true ? (
                       <Check size={14} className="text-emerald-400" />
-                    ) : !isEmailFormatValid || emailAvailable === false ? (
+                    ) : (emailTouched && (!hasEmailAt || !isEmailFormatValid)) || emailAvailable === false ? (
                       <X size={14} className="text-rose-400" />
                     ) : null}
                   </div>
                 )}
               </div>
 
-              {/* Dynamic Email Status Badge */}
+              {/* Dynamic Email Status Badge with onBlur alerts */}
               {cleanEmailStr.length > 0 && (
                 <div className="mt-1 flex items-center gap-1.5 text-[11px]">
                   {!hasEmailNoSpaces ? (
                     <span className="text-rose-400 flex items-center gap-1">
                       <AlertCircle size={12} /> Spaces are not allowed in email address.
                     </span>
-                  ) : !isEmailFormatValid ? (
-                    <span className="text-rose-400 flex items-center gap-1">
-                      <AlertCircle size={12} /> Please enter a valid email address (e.g. faculty@college.vnsgu.ac.in).
+                  ) : !hasEmailAt ? (
+                    <span className={`${emailTouched ? 'text-rose-400 font-semibold' : 'text-amber-400'} flex items-center gap-1`}>
+                      <AlertCircle size={12} /> Email address must contain '@' symbol (e.g. name@gmail.com).
+                    </span>
+                  ) : !hasValidDomain ? (
+                    <span className={`${emailTouched ? 'text-rose-400 font-semibold' : 'text-amber-400'} flex items-center gap-1`}>
+                      <AlertCircle size={12} /> Please enter a valid domain after '@' (e.g. @gmail.com or @vnsgu.ac.in).
                     </span>
                   ) : emailCheckLoading ? (
                     <span className="text-teal-400 flex items-center gap-1">

@@ -244,5 +244,16 @@ export const api = {
   submitTicket: (data) => request('/help-desk', { method: 'POST', body: JSON.stringify(data) }),
   trackTicket: (trackId) => request(`/help-desk/track?tracking_id=${trackId}`),
   getTickets: () => request('/help-desk'),
-  replyTicket: (data) => request('/help-desk/reply', { method: 'POST', body: JSON.stringify(data) })
+  replyTicket: (data) => request('/help-desk/reply', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Admin Panel Management
+  getAdminStats: () => request('/admin/stats'),
+  getAdminUsers: () => request('/admin/users'),
+  updateUserRole: (id, role) => request('/admin/users/' + id + '/role', { method: 'POST', body: JSON.stringify({ role }) }),
+  deleteAdminUser: (id) => request('/admin/users/' + id, { method: 'DELETE' }),
+  adminResetPassword: (id, new_password) => request('/admin/users/' + id + '/reset-password', { method: 'POST', body: JSON.stringify({ new_password }) }),
+  getAdminSessions: () => request('/admin/sessions'),
+  deleteAdminSession: (id) => request('/admin/sessions/' + id, { method: 'DELETE' }),
+  testAdminSmtp: (email) => request('/admin/test-smtp', { method: 'POST', body: JSON.stringify({ email }) }),
+  rehashLegacyPasswords: () => request('/admin/rehash-legacy-passwords', { method: 'POST' })
 };

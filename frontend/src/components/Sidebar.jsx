@@ -16,10 +16,12 @@ import {
   Settings,
   LogOut,
   ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const Sidebar = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin';
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -44,6 +46,11 @@ export const Sidebar = () => {
     { section: 'Support & Config' },
     { path: '/helpdesk', label: 'Help Desk Tickets', icon: HelpCircle },
     { path: '/settings', label: 'Settings & Branding', icon: Settings },
+
+    ...(isAdmin ? [
+      { section: 'Administration' },
+      { path: '/admin', label: 'Admin Console', icon: ShieldAlert },
+    ] : []),
   ];
 
   return (
