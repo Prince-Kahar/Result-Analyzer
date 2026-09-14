@@ -255,5 +255,19 @@ export const api = {
   getAdminSessions: () => request('/admin/sessions'),
   deleteAdminSession: (id) => request('/admin/sessions/' + id, { method: 'DELETE' }),
   testAdminSmtp: (email) => request('/admin/test-smtp', { method: 'POST', body: JSON.stringify({ email }) }),
-  rehashLegacyPasswords: () => request('/admin/rehash-legacy-passwords', { method: 'POST' })
+  rehashLegacyPasswords: () => request('/admin/rehash-legacy-passwords', { method: 'POST' }),
+
+  // Extended Admin Suite
+  createAdminUser: (userData) => request('/admin/users', { method: 'POST', body: JSON.stringify(userData) }),
+  updateAdminUser: (id, userData) => request('/admin/users/' + id, { method: 'PUT', body: JSON.stringify(userData) }),
+  updateAdminSession: (id, sessionData) => request('/admin/sessions/' + id, { method: 'PUT', body: JSON.stringify(sessionData) }),
+  getAdminStudents: (params = {}) => request('/admin/students?' + new URLSearchParams(params).toString()),
+  updateAdminStudent: (id, studentData) => request('/admin/students/' + id, { method: 'PUT', body: JSON.stringify(studentData) }),
+  deleteAdminStudent: (id) => request('/admin/students/' + id, { method: 'DELETE' }),
+  getAdminTickets: () => request('/admin/tickets'),
+  updateAdminTicketStatus: (id, status) => request('/admin/tickets/' + id + '/status', { method: 'POST', body: JSON.stringify({ status }) }),
+  replyAdminTicket: (id, reply_text) => request('/admin/tickets/' + id + '/reply', { method: 'POST', body: JSON.stringify({ reply_text }) }),
+  deleteAdminTicket: (id) => request('/admin/tickets/' + id, { method: 'DELETE' }),
+  getAdminAnnouncement: () => request('/admin/announcement'),
+  setAdminAnnouncement: (data) => request('/admin/announcement', { method: 'POST', body: JSON.stringify(data) })
 };

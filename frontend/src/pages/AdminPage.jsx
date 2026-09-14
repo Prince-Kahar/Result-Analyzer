@@ -1,68 +1,218 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import {
   ShieldAlert, ShieldCheck, Users, FileSpreadsheet, Lock, KeyRound,
   Trash2, RefreshCw, CheckCircle2, AlertTriangle, Mail, Send,
-  Building, Phone, Search, UserCheck, UserX, Cpu, Database
+  Building, Phone, Search, UserCheck, UserX, Cpu, Database,
+  PlusCircle, Edit3, ArrowLeft, ExternalLink, MessageSquare,
+  GraduationCap, Download, Radio, Volume2, Save, X, Eye, EyeOff
 } from 'lucide-react';
 
 export const AdminPage = () => {
-  const { user } = useAuth();
-  const isAdmin = user && (user.role === 'admin' || user.username === 'sascma_admin');
+  const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'sessions' | 'security'
-  const [loading, setLoading] = useState(true);
+  // Active Admin View Tab
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'users' | 'sessions' | 'students' | 'tickets' | 'security' | 'broadcast'
+
+  // Data states
   const [stats, setStats] = useState(null);
-  const [usersList, setUsersList] = useState([]);
-  const [sessionsList, setSessionsList] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [msg, setMsg] = useState({ type: '', text: '' });
+  const [users, setUsers] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [announcement, setAnnouncement] = useState({ active: false, message: '', type: 'info' });
 
-  // Reset Password Modal State
-  const [resetModal, setResetModal] = useState({ open: false, user: null, password: '' });
+  // Loading & notification states
+  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-  // SMTP Test State
-  const [smtpEmail, setSmtpEmail] = useState(user?.email || 'prince.kahar.king@gmail.com');
-  const [smtpLoading, setSmtpLoading] = useState(false);
+  // Student search states
+  const [studentSearchQ, setStudentSearchQ] = useState('');
+  const [studentSearchLoading, setStudentSearchLoading] = useState(false);
 
-  const fetchAdminData = async () => {
-    setLoading(true);
+  // Modals state
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [showResetPassModal, setShowResetPassModal] = useState(false);
+  const [showRenameSessionModal, setShowRenameSessionModal] = useState(false);
+  const [showEditStudentModal, setShowEditStudentModal] = useState(false);
+  const [showReplyTicketModal, setShowReplyTicketModal] = useState(false);
+
+  // Selected entities for modals
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+
+  // Form inputs
+  const [newUserForm, setNewUserForm] = useState({
+    username: '', email: '', phone: '', college_name: '', course: 'All Courses', password: '', role: 'faculty'
+  });
+  const [editUserForm, setEditUserForm] = useState({
+    college_name: '', phone: '', course: '', email: ''
+  });
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [sessionRenameText, setSessionRenameText] = useState('');
+  const [editStudentForm, setEditStudentForm] = useState({
+    name: '', seat_no: '', college_name: '', result: 'PASS', sgpa: '', percentage: ''
+  });
+  const [ticketReplyText, setTicketReplyText] = useState('');
+
+  // Diagnostic forms
+  const [smtpTargetEmail, setSmtpTargetEmail] = useState('');
+  const [broadcastForm, setBroadcastForm] = useState({ active: false, message: '', type: 'info' });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
+  };
+
+  // Load all initial admin data
+  const loadAllAdminData = async () => {
     try {
-      const [statsRes, usersRes, sessionsRes] = await Promise.all([
+      setLoading(true);
+      const [statsRes, usersRes, sessRes, ticketsRes, annRes] = await Promise.all([
         api.getAdminStats().catch(() => ({ stats: null })),
         api.getAdminUsers().catch(() => ({ users: [] })),
         api.getAdminSessions().catch(() => ({ sessions: [] })),
+        api.getAdminTickets().catch(() => ({ tickets: [] })),
+        api.getAdminAnnouncement().catch(() => ({ announcement: { active: false, message: '', type: 'info' } }))
       ]);
 
       if (statsRes?.stats) setStats(statsRes.stats);
-      if (usersRes?.users) setUsersList(usersRes.users);
-      if (sessionsRes?.sessions) setSessionsList(sessionsRes.sessions);
+      if (usersRes?.users) setUsers(usersRes.users);
+      if (sessRes?.sessions) setSessions(sessRes.sessions);
+      if (ticketsRes?.tickets) setTickets(ticketsRes.tickets);
+      if (annRes?.announcement) {
+        setAnnouncement(annRes.announcement);
+        setBroadcastForm(annRes.announcement);
+      }
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Failed to load admin telemetry' });
+      showToast('Error loading administrative data: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (isAdmin) {
-      fetchAdminData();
+    loadAllAdminData();
+  }, []);
+
+  // Search students when query changes or tab selected
+  const handleSearchStudents = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      setStudentSearchLoading(true);
+      const res = await api.getAdminStudents({ q: studentSearchQ, limit: 50 });
+      if (res.students) {
+        setStudents(res.students);
+      }
+    } catch (err) {
+      showToast('Failed to query student database: ' + err.message, 'error');
+    } finally {
+      setStudentSearchLoading(false);
     }
-  }, [isAdmin]);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'students' && students.length === 0) {
+      handleSearchStudents();
+    }
+  }, [activeTab]);
+
+  // Access check: Only superadmin or admin role allowed
+  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin';
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4 shadow-xl">
+          <ShieldAlert size={32} />
+        </div>
+        <h1 className="text-2xl font-black tracking-tight">Root Administrator Access Required</h1>
+        <p className="text-slate-400 text-sm max-w-md mt-2">
+          This portal is reserved strictly for SASCMA STERS system administrators. Unauthorized access attempts are monitored and recorded.
+        </p>
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="mt-6 px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all flex items-center gap-2 border border-slate-700"
+        >
+          <ArrowLeft size={16} /> Return to Faculty Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  // ==================== USER ACTIONS ====================
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    try {
+      setActionLoading(true);
+      const res = await api.createAdminUser(newUserForm);
+      showToast(res.message || 'User registered successfully.');
+      setShowAddUserModal(false);
+      setNewUserForm({ username: '', email: '', phone: '', college_name: '', course: 'All Courses', password: '', role: 'faculty' });
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to create user', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    try {
+      setActionLoading(true);
+      const res = await api.updateAdminUser(selectedUser.id, editUserForm);
+      showToast(res.message || 'User details updated.');
+      setShowEditUserModal(false);
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to update user', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleToggleRole = async (targetUser) => {
-    const newRole = targetUser.role === 'admin' ? 'user' : 'admin';
-    if (!window.confirm(`Are you sure you want to change ${targetUser.username}'s role to ${newRole}?`)) return;
+    const newRole = targetUser.role === 'admin' ? 'faculty' : 'admin';
+    if (targetUser.username === 'sascma_admin' && newRole !== 'admin') {
+      return showToast('Cannot demote root superadministrator.', 'error');
+    }
+    if (!window.confirm(`Are you sure you want to change ${targetUser.username}'s role to ${newRole.toUpperCase()}?`)) return;
 
-    setActionLoading(true);
     try {
-      await api.updateUserRole(targetUser.id, newRole);
-      setMsg({ type: 'success', text: `Updated ${targetUser.username} to ${newRole}.` });
-      fetchAdminData();
+      setActionLoading(true);
+      const res = await api.updateUserRole(targetUser.id, newRole);
+      showToast(res.message || `Role changed to ${newRole}.`);
+      await loadAllAdminData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Failed to update role' });
+      showToast(err.message || 'Failed to update role', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (!selectedUser || !newPassword) return;
+    try {
+      setActionLoading(true);
+      const res = await api.adminResetPassword(selectedUser.id, newPassword);
+      showToast(res.message || `Password reset with Bcrypt for ${selectedUser.username}.`);
+      setShowResetPassModal(false);
+      setNewPassword('');
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to reset password', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -70,566 +220,1516 @@ export const AdminPage = () => {
 
   const handleDeleteUser = async (targetUser) => {
     if (targetUser.username === 'sascma_admin') {
-      return alert('Cannot delete the primary system administrator.');
+      return showToast('Cannot delete root superadministrator account.', 'error');
     }
-    if (!window.confirm(`PERMANENT ACTION: Delete user "${targetUser.username}" and all related data?`)) return;
+    if (!window.confirm(`PERMANENT ACTION: Delete user "${targetUser.username}"? This cannot be undone.`)) return;
 
-    setActionLoading(true);
     try {
-      await api.deleteAdminUser(targetUser.id);
-      setMsg({ type: 'success', text: `User ${targetUser.username} permanently deleted.` });
-      fetchAdminData();
+      setActionLoading(true);
+      const res = await api.deleteAdminUser(targetUser.id);
+      showToast(res.message || 'User account removed.');
+      await loadAllAdminData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Failed to delete user' });
+      showToast(err.message || 'Failed to delete user', 'error');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleResetPasswordSubmit = async (e) => {
+  // ==================== SESSION ACTIONS ====================
+  const handleRenameSession = async (e) => {
     e.preventDefault();
-    if (!resetModal.password || resetModal.password.length < 8) {
-      return alert('Password must be at least 8 characters.');
-    }
-
-    setActionLoading(true);
+    if (!selectedSession || !sessionRenameText.trim()) return;
     try {
-      await api.adminResetPassword(resetModal.user.id, resetModal.password);
-      setMsg({ type: 'success', text: `Password for ${resetModal.user.username} has been reset and Bcrypt encrypted.` });
-      setResetModal({ open: false, user: null, password: '' });
+      setActionLoading(true);
+      const res = await api.updateAdminSession(selectedSession.id, { session_name: sessionRenameText.trim() });
+      showToast(res.message || 'Session renamed successfully.');
+      setShowRenameSessionModal(false);
+      await loadAllAdminData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Password reset failed' });
+      showToast(err.message || 'Failed to rename session', 'error');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleDeleteSession = async (session) => {
-    if (!window.confirm(`Delete examination session "${session.session_name}"? This removes student marks parsed in this session.`)) return;
+  const handleDeleteSession = async (sess) => {
+    if (!window.confirm(`CASCADE DELETE: Delete session "${sess.session_name}"? All associated student records and marks will be permanently removed.`)) return;
 
-    setActionLoading(true);
     try {
-      await api.deleteAdminSession(session.id);
-      setMsg({ type: 'success', text: `Session ${session.session_name} removed.` });
-      fetchAdminData();
+      setActionLoading(true);
+      const res = await api.deleteAdminSession(sess.id);
+      showToast(res.message || 'Session and associated records removed.');
+      await loadAllAdminData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Failed to delete session' });
+      showToast(err.message || 'Failed to delete session', 'error');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleTestSmtp = async () => {
-    setSmtpLoading(true);
-    setMsg({ type: '', text: '' });
+  // ==================== STUDENT ACTIONS ====================
+  const handleUpdateStudent = async (e) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
     try {
-      const res = await api.testAdminSmtp(smtpEmail.trim());
-      setMsg({ type: 'success', text: res.message || 'Diagnostic email sent successfully!' });
+      setActionLoading(true);
+      const res = await api.updateAdminStudent(selectedStudent.id, editStudentForm);
+      showToast(res.message || 'Student record updated.');
+      setShowEditStudentModal(false);
+      await handleSearchStudents();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'SMTP diagnostic failed' });
+      showToast(err.message || 'Failed to update student', 'error');
     } finally {
-      setSmtpLoading(false);
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteStudent = async (stud) => {
+    if (!window.confirm(`Delete record for student seat #${stud.seat_no} (${stud.name})?`)) return;
+    try {
+      setActionLoading(true);
+      const res = await api.deleteAdminStudent(stud.id);
+      showToast(res.message || 'Student record deleted.');
+      await handleSearchStudents();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete student', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ==================== TICKET ACTIONS ====================
+  const handleUpdateTicketStatus = async (ticketId, status) => {
+    try {
+      setActionLoading(true);
+      const res = await api.updateAdminTicketStatus(ticketId, status);
+      showToast(res.message || `Ticket status updated to ${status}.`);
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to update ticket status', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReplyTicket = async (e) => {
+    e.preventDefault();
+    if (!selectedTicket || !ticketReplyText.trim()) return;
+    try {
+      setActionLoading(true);
+      const res = await api.replyAdminTicket(selectedTicket.id, ticketReplyText.trim());
+      showToast(res.message || 'Resolution sent to applicant.');
+      setShowReplyTicketModal(false);
+      setTicketReplyText('');
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to reply to ticket', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteTicket = async (ticketId) => {
+    if (!window.confirm('Delete this support ticket?')) return;
+    try {
+      setActionLoading(true);
+      const res = await api.deleteAdminTicket(ticketId);
+      showToast(res.message || 'Support ticket deleted.');
+      await loadAllAdminData();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete ticket', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ==================== SECURITY & DIAGNOSTIC ACTIONS ====================
+  const handleTestSmtp = async (e) => {
+    e.preventDefault();
+    try {
+      setActionLoading(true);
+      const res = await api.testAdminSmtp(smtpTargetEmail || user?.email);
+      showToast(res.message || 'Test email dispatched successfully.');
+    } catch (err) {
+      showToast(err.message || 'SMTP diagnostic failed', 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleRehashPasswords = async () => {
-    if (!window.confirm('Run security migration to convert any legacy plaintext passwords to salted Bcrypt hashes?')) return;
-    setActionLoading(true);
+    if (!window.confirm('Run security migration? All unhashed legacy passwords will be converted to salted Bcrypt hashes.')) return;
     try {
+      setActionLoading(true);
       const res = await api.rehashLegacyPasswords();
-      setMsg({ type: 'success', text: res.message || 'Security migration completed!' });
-      fetchAdminData();
+      showToast(res.message || 'Security upgrade completed.');
+      await loadAllAdminData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Migration failed' });
+      showToast(err.message || 'Migration failed', 'error');
     } finally {
       setActionLoading(false);
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-rose-500/30 rounded-3xl p-8 text-center shadow-2xl">
-          <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <ShieldAlert size={32} />
-          </div>
-          <h2 className="text-xl font-black text-white mb-2">Access Denied</h2>
-          <p className="text-xs text-slate-400 mb-6">
-            Administrator privileges are required to access this console. Please log in with an administrator account.
-          </p>
-          <a
-            href="/dashboard"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-all"
-          >
-            Return to Executive Dashboard
-          </a>
-        </div>
-      </div>
-    );
-  }
+  const handleSaveBroadcast = async (e) => {
+    e.preventDefault();
+    try {
+      setActionLoading(true);
+      const res = await api.setAdminAnnouncement(broadcastForm);
+      showToast(res.message || 'System broadcast announcement updated.');
+      setAnnouncement(res.announcement);
+    } catch (err) {
+      showToast(err.message || 'Failed to update announcement', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-  const filteredUsers = usersList.filter(u =>
-    (u.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (u.college_name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filtered users
+  const filteredUsers = users.filter(u => {
+    const matchQ = (u.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                   (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                   (u.college_name || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchRole = roleFilter === 'all' || u.role === roleFilter;
+    return matchQ && matchRole;
+  });
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 bg-gradient-to-br from-teal-500/20 to-teal-700/20 border border-teal-500/40 rounded-2xl text-teal-400 shadow-inner">
-              <ShieldCheck size={32} />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-teal-500 selection:text-slate-950 font-sans">
+      {/* Toast Notification Alert */}
+      {toast.show && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border text-xs font-semibold backdrop-blur-md transition-all transform animate-slide-in ${
+          toast.type === 'error'
+            ? 'bg-rose-950/90 border-rose-500/60 text-rose-200'
+            : 'bg-emerald-950/90 border-emerald-500/60 text-emerald-200'
+        }`}>
+          {toast.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{toast.message}</span>
+          <button onClick={() => setToast({ show: false, message: '', type: 'success' })} className="text-slate-400 hover:text-white ml-2">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ==================== 1. EXECUTIVE ADMIN TOP BAR ==================== */}
+      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800/80 px-4 sm:px-8 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3.5 w-full sm:w-auto justify-between sm:justify-start">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('overview')}>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 to-indigo-600 flex items-center justify-center text-slate-950 font-black shadow-md shadow-teal-500/20">
+              <ShieldCheck size={24} className="text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">Admin Operations Console</h1>
-                <span className="px-2.5 py-0.5 bg-teal-500/10 border border-teal-500/30 text-teal-400 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                  Superadmin
+                <h1 className="text-base font-extrabold text-white tracking-wide">SASCMA STERS</h1>
+                <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full">
+                  Admin Portal
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Veer Narmad South Gujarat University Examination System Management & Security Hub
-              </p>
+              <p className="text-[11px] text-teal-400 font-semibold tracking-wide">Root System Control Center</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              onClick={handleRehashPasswords}
-              disabled={actionLoading}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
-              title="Ensure all stored passwords use salted Bcrypt hashing"
-            >
-              <Lock size={13} className="text-teal-400" />
-              <span>Verify Bcrypt Encryption</span>
-            </button>
+          {/* System Vitals Pill */}
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700/60 text-[11px] text-slate-300">
+            <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> DB Online
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-teal-400 font-medium flex items-center gap-1">
+              <Lock size={12} /> Bcrypt (10R)
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-indigo-400 font-medium flex items-center gap-1">
+              <Mail size={12} /> SMTP Active
+            </span>
+          </div>
+        </div>
+
+        {/* Right Controls */}
+        <div className="flex items-center gap-2.5 sm:gap-4 w-full sm:w-auto justify-end">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold rounded-xl border border-slate-700 transition-all shadow-sm"
+            title="Open standard student analysis dashboard"
+          >
+            <ExternalLink size={14} className="text-teal-400" />
+            <span>Faculty Dashboard</span>
+          </button>
+
+          {/* Admin User Chip & Logout */}
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+            <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/70 px-3 py-1.5 rounded-xl">
+              <div className="w-6 h-6 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold text-xs">
+                {user?.username?.[0]?.toUpperCase() || 'A'}
+              </div>
+              <div className="text-left hidden sm:block">
+                <p className="text-xs font-bold text-slate-200 leading-tight">{user?.username}</p>
+                <p className="text-[10px] text-teal-400 font-medium leading-tight">Super Administrator</p>
+              </div>
+            </div>
 
             <button
-              onClick={fetchAdminData}
+              onClick={logout}
+              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors border border-transparent hover:border-rose-500/20"
+              title="Sign Out of Workspace"
+            >
+              <UserX size={16} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ==================== 2. ADMIN WORKSPACE BODY ==================== */}
+      <div className="flex-1 flex flex-col md:flex-row">
+        {/* Dedicated Admin Sidebar */}
+        <aside className="w-full md:w-64 bg-slate-900/60 border-r border-slate-800/80 p-3 sm:p-4 flex-shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
+          <div className="hidden md:block pb-2 px-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Administration Suite
+          </div>
+
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'overview'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <Cpu size={16} className={activeTab === 'overview' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Overview & KPIs</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'users'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <Users size={16} className={activeTab === 'users' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Faculty & Users ({users.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('sessions')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'sessions'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <FileSpreadsheet size={16} className={activeTab === 'sessions' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Exam Gazettes ({sessions.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('students')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'students'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <GraduationCap size={16} className={activeTab === 'students' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Student Database</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'tickets'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <MessageSquare size={16} className={activeTab === 'tickets' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Support Tickets ({tickets.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'security'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <Lock size={16} className={activeTab === 'security' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>Security & SMTP</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('broadcast')}
+            className={`flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+              activeTab === 'broadcast'
+                ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <Radio size={16} className={activeTab === 'broadcast' ? 'text-teal-400' : 'text-slate-400'} />
+            <span>System Broadcast</span>
+          </button>
+
+          {/* Refresh Action at Bottom */}
+          <div className="hidden md:block mt-auto pt-4 border-t border-slate-800/80">
+            <button
+              onClick={loadAllAdminData}
               disabled={loading}
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl transition-all"
-              title="Refresh telemetry data"
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800/70 hover:bg-slate-800 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700/60 transition-all"
             >
-              <RefreshCw size={15} className={loading ? 'animate-spin text-teal-400' : ''} />
+              <RefreshCw size={14} className={loading ? 'animate-spin text-teal-400' : 'text-slate-400'} />
+              <span>Sync All Data</span>
             </button>
           </div>
-        </div>
+        </aside>
 
-        {/* Global Feedback Banner */}
-        {msg.text && (
-          <div className={`mt-4 p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fadeIn ${
-            msg.type === 'error'
-              ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-          }`}>
-            {msg.type === 'error' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-            <span className="flex-1">{msg.text}</span>
-            <button onClick={() => setMsg({ type: '', text: '' })} className="text-xs opacity-70 hover:opacity-100">✕</button>
-          </div>
-        )}
-      </div>
+        {/* Admin Main Content Workspace */}
+        <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full">
+          {/* ==================== TAB 1: OVERVIEW ==================== */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Executive Dashboard</h2>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                    Centralized management and security health for Veer Narmad South Gujarat University.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-500/20 transition-all"
+                  >
+                    <PlusCircle size={16} />
+                    <span>Create User</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('security')}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all"
+                  >
+                    <Lock size={15} className="text-teal-400" />
+                    <span>Run Bcrypt Audit</span>
+                  </button>
+                </div>
+              </div>
 
-      {/* 4 Telemetry KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold">Registered Faculty & Users</span>
-            <Users size={18} className="text-teal-400" />
-          </div>
-          <div className="text-2xl font-black text-white">{stats?.totalUsers ?? '...'}</div>
-          <p className="text-[11px] text-teal-400 mt-1 font-medium">
-            {stats?.adminCount || 1} System Administrator(s)
-          </p>
-        </div>
+              {/* KPI Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Registered Users</span>
+                    <Users size={18} className="text-teal-400" />
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-white">
+                    {stats?.totalUsers ?? users.length}
+                  </div>
+                  <p className="text-[11px] text-teal-400 mt-1 font-medium">
+                    {stats?.adminCount || 1} Admins • {(stats?.totalUsers || users.length) - (stats?.adminCount || 1)} Faculty
+                  </p>
+                </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold">Total Exam Sessions</span>
-            <FileSpreadsheet size={18} className="text-blue-400" />
-          </div>
-          <div className="text-2xl font-black text-white">{stats?.totalSessions ?? '...'}</div>
-          <p className="text-[11px] text-slate-400 mt-1">Uploaded and indexed PDF sessions</p>
-        </div>
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Uploaded Sessions</span>
+                    <FileSpreadsheet size={18} className="text-indigo-400" />
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-white">
+                    {stats?.totalSessions ?? sessions.length}
+                  </div>
+                  <p className="text-[11px] text-indigo-400 mt-1 font-medium">
+                    {stats?.totalStudents ?? 0} Students Ingested
+                  </p>
+                </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold">Processed Students</span>
-            <Cpu size={18} className="text-indigo-400" />
-          </div>
-          <div className="text-2xl font-black text-white">{stats?.totalStudents?.toLocaleString() ?? '...'}</div>
-          <p className="text-[11px] text-slate-400 mt-1">Evaluated across all sessions</p>
-        </div>
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Security Encryption</span>
+                    <ShieldCheck size={18} className="text-emerald-400" />
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-white">
+                    {stats?.bcryptProtectedCount ?? 0} <span className="text-sm font-normal text-slate-400">/ {stats?.totalUsers ?? users.length}</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-400 mt-1 font-medium">
+                    Bcrypt (Salt 10 Rounds) + Anti-SQLi
+                  </p>
+                </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold">Security Architecture</span>
-            <ShieldCheck size={18} className="text-emerald-400" />
-          </div>
-          <div className="text-sm font-black text-emerald-400">Bcrypt + Anti-SQLi</div>
-          <p className="text-[10px] text-slate-400 mt-1">
-            Zero plaintext • Salt 10 • PostgREST Sanitize
-          </p>
-        </div>
-      </div>
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Email Automation</span>
+                    <Mail size={18} className="text-amber-400" />
+                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-white mt-1">
+                    Operational
+                  </div>
+                  <p className="text-[11px] text-amber-400 mt-1 font-medium">
+                    Gmail SMTP • Instant OTP Dispatch
+                  </p>
+                </div>
+              </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-            activeTab === 'users'
-              ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          <Users size={14} />
-          <span>Faculty & User Management ({usersList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('sessions')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-            activeTab === 'sessions'
-              ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          <FileSpreadsheet size={14} />
-          <span>Exam Sessions ({sessionsList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('security')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-            activeTab === 'security'
-              ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          <Lock size={14} />
-          <span>Security Diagnostics & Mail</span>
-        </button>
-      </div>
-
-      {/* ===================== TAB 1: USERS MANAGEMENT ===================== */}
-      {activeTab === 'users' && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search faculty by username, email or college..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs placeholder-slate-500 focus:outline-none focus:border-teal-500"
-              />
-              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-            </div>
-
-            <div className="text-[11px] text-slate-400">
-              Showing {filteredUsers.length} of {usersList.length} accounts
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Faculty Member</th>
-                  <th className="py-3 px-4">Contact Info</th>
-                  <th className="py-3 px-4">College / Dept</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4">Joined Date</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
-                {filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500">
-                      No matching user accounts located.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-white">
-                        <div className="flex items-center gap-2">
-                          <span className="w-7 h-7 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center font-bold text-xs uppercase">
-                            {u.username?.charAt(0) || 'U'}
-                          </span>
-                          <div>
-                            <div>{u.username}</div>
-                            {u.username === 'sascma_admin' && (
-                              <span className="text-[9px] text-amber-400 uppercase font-black tracking-widest">Master Admin</span>
-                            )}
+              {/* Quick Jump & Recents */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Recent Users */}
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Users size={16} className="text-teal-400" /> Recent User Registrations
+                      </h3>
+                      <button onClick={() => setActiveTab('users')} className="text-xs text-teal-400 hover:text-teal-300 font-semibold">
+                        View All ({users.length}) →
+                      </button>
+                    </div>
+                    <div className="space-y-2.5">
+                      {users.slice(0, 4).map((u) => (
+                        <div key={u.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 text-xs">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold">
+                              {u.username[0]?.toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-200">{u.username}</p>
+                              <p className="text-[10px] text-slate-400">{u.college_name || 'VNSGU Faculty'}</p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 space-y-0.5">
-                        <div className="flex items-center gap-1.5 text-slate-200">
-                          <Mail size={12} className="text-slate-400" />
-                          <span>{u.email}</span>
-                        </div>
-                        {u.phone && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                            <Phone size={11} />
-                            <span>+91 {u.phone}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        <div className="flex items-center gap-1.5">
-                          <Building size={12} className="text-slate-500 shrink-0" />
-                          <span className="truncate max-w-[200px]" title={u.college_name || 'VNSGU Affiliated'}>
-                            {u.college_name || 'VNSGU Affiliated'}
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                            u.role === 'admin' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-700/40 text-slate-400'
+                          }`}>
+                            {u.role.toUpperCase()}
                           </span>
                         </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          u.role === 'admin'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                            : 'bg-teal-500/10 text-teal-400 border border-teal-500/30'
-                        }`}>
-                          {u.role || 'user'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-[11px] text-slate-400">
-                        {u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          {u.username !== 'sascma_admin' && (
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recent Exam Sessions */}
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <FileSpreadsheet size={16} className="text-indigo-400" /> Recent Exam Gazettes
+                      </h3>
+                      <button onClick={() => setActiveTab('sessions')} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold">
+                        View All ({sessions.length}) →
+                      </button>
+                    </div>
+                    {sessions.length === 0 ? (
+                      <div className="text-center py-6 text-slate-500 text-xs">
+                        No examination gazettes uploaded yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {sessions.slice(0, 4).map((s) => (
+                          <div key={s.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-slate-800 text-xs">
+                            <div>
+                              <p className="font-bold text-slate-200">{s.session_name}</p>
+                              <p className="text-[10px] text-slate-400">{s.total_students || 0} students • {new Date(s.created_at).toLocaleDateString()}</p>
+                            </div>
                             <button
-                              onClick={() => handleToggleRole(u)}
-                              disabled={actionLoading}
-                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
-                              title={u.role === 'admin' ? 'Demote to Faculty' : 'Promote to Admin'}
+                              onClick={() => handleDeleteSession(s)}
+                              className="text-rose-400 hover:text-rose-300 p-1"
+                              title="Delete Session"
                             >
-                              {u.role === 'admin' ? <UserX size={13} className="text-amber-400" /> : <UserCheck size={13} className="text-teal-400" />}
+                              <Trash2 size={14} />
                             </button>
-                          )}
-
-                          <button
-                            onClick={() => setResetModal({ open: true, user: u, password: '' })}
-                            disabled={actionLoading}
-                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
-                            title="Reset password with Bcrypt encryption"
-                          >
-                            <KeyRound size={13} className="text-blue-400" />
-                          </button>
-
-                          {u.username !== 'sascma_admin' && (
-                            <button
-                              onClick={() => handleDeleteUser(u)}
-                              disabled={actionLoading}
-                              className="p-1.5 bg-slate-800 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors"
-                              title="Delete user"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ===================== TAB 2: SESSIONS MANAGEMENT ===================== */}
-      {activeTab === 'sessions' && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white">Indexed Examination Result Sessions</h3>
-            <span className="text-[11px] text-slate-400">Total sessions: {sessionsList.length}</span>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Session Name / Gazette</th>
-                  <th className="py-3 px-4">Course Name</th>
-                  <th className="py-3 px-4">Total Students</th>
-                  <th className="py-3 px-4">Upload Timestamp</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
-                {sessionsList.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
-                      No examination sessions found in database.
-                    </td>
-                  </tr>
-                ) : (
-                  sessionsList.map((s) => (
-                    <tr key={s.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-white">
-                        <div className="flex items-center gap-2">
-                          <FileSpreadsheet size={16} className="text-teal-400 shrink-0" />
-                          <span>{s.session_name || 'Gazette Result Session'}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">{s.course_name || 'B.Com / VNSGU'}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-teal-400">
-                        {Number(s.total_students || 0).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-slate-400 text-[11px]">
-                        {s.created_at ? new Date(s.created_at).toLocaleString('en-IN') : 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleDeleteSession(s)}
-                          disabled={actionLoading}
-                          className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg transition-colors inline-flex items-center gap-1 text-[11px]"
-                        >
-                          <Trash2 size={12} />
-                          <span>Delete</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ===================== TAB 3: SECURITY DIAGNOSTICS & MAIL ===================== */}
-      {activeTab === 'security' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Security Architecture Box */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl">
-                <Lock size={20} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 2: FACULTY & USERS ==================== */}
+          {activeTab === 'users' && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-white">Faculty & User Directory</h2>
+                  <p className="text-xs text-slate-400">Manage, promote, reset passwords, or remove registered accounts.</p>
+                </div>
+                <button
+                  onClick={() => setShowAddUserModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 text-white text-xs font-bold rounded-xl shadow-md transition-all self-start sm:self-auto"
+                >
+                  <PlusCircle size={15} /> Add New User
+                </button>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by username, college, or email..."
+                    className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                  <Search size={15} className="absolute left-3 top-2.5 text-slate-500" />
+                </div>
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-teal-500 w-full sm:w-auto"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="admin">Administrators</option>
+                  <option value="faculty">Faculty</option>
+                </select>
+              </div>
+
+              {/* Users Table */}
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">User</th>
+                        <th className="py-3 px-4">College / Dept</th>
+                        <th className="py-3 px-4">Phone / Contact</th>
+                        <th className="py-3 px-4">Role</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      {filteredUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="text-center py-8 text-slate-500">
+                            No users matched your query.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center justify-center font-bold text-xs">
+                                  {u.username[0]?.toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-white">{u.username}</div>
+                                  <div className="text-[10px] text-slate-400">{u.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-medium text-slate-300">{u.college_name || 'VNSGU'}</div>
+                              <div className="text-[10px] text-slate-500">{u.course || 'All Courses'}</div>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[11px] text-slate-400">
+                              {u.phone ? `+91 ${u.phone}` : '—'}
+                            </td>
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={() => handleToggleRole(u)}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                                  u.role === 'admin'
+                                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                }`}
+                                title="Click to toggle role between Admin and Faculty"
+                              >
+                                {u.role === 'admin' ? 'Superadmin / Admin' : 'Faculty'}
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(u);
+                                    setEditUserForm({
+                                      college_name: u.college_name || '',
+                                      phone: u.phone || '',
+                                      course: u.course || '',
+                                      email: u.email || ''
+                                    });
+                                    setShowEditUserModal(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-teal-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                  title="Edit User Info"
+                                >
+                                  <Edit3 size={15} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(u);
+                                    setNewPassword('');
+                                    setShowResetPassModal(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                  title="Reset Password (Bcrypt)"
+                                >
+                                  <KeyRound size={15} />
+                                </button>
+                                {u.username !== 'sascma_admin' && (
+                                  <button
+                                    onClick={() => handleDeleteUser(u)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 3: EXAM SESSIONS ==================== */}
+          {activeTab === 'sessions' && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-white">Examination Gazettes & Sessions</h2>
+                  <p className="text-xs text-slate-400">View imported gazette sessions, rename titles, or purge database entries.</p>
+                </div>
+                <button
+                  onClick={() => navigate('/upload')}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 text-white text-xs font-bold rounded-xl shadow-md transition-all self-start sm:self-auto"
+                >
+                  <PlusCircle size={15} /> Upload New Gazette PDF
+                </button>
+              </div>
+
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Session Title</th>
+                        <th className="py-3 px-4">Exam Details</th>
+                        <th className="py-3 px-4">Total Students</th>
+                        <th className="py-3 px-4">Uploaded Date</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      {sessions.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="text-center py-8 text-slate-500">
+                            No examination sessions recorded in the database.
+                          </td>
+                        </tr>
+                      ) : (
+                        sessions.map((s) => (
+                          <tr key={s.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-4 font-bold text-white">
+                              {s.session_name}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400">
+                              {s.exam_date || 'VNSGU Semester Examination'}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-teal-400">
+                              {s.total_students || 0}
+                            </td>
+                            <td className="py-3 px-4 text-slate-500 text-[11px]">
+                              {new Date(s.created_at).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setSelectedSession(s);
+                                    setSessionRenameText(s.session_name);
+                                    setShowRenameSessionModal(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-teal-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                  title="Rename Session"
+                                >
+                                  <Edit3 size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSession(s)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                  title="Cascade Delete Session"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 4: STUDENT RECORDS ==================== */}
+          {activeTab === 'students' && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-white">Global Student Records</h2>
+                  <p className="text-xs text-slate-400">Search and edit student results across all imported examination gazettes.</p>
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <form onSubmit={handleSearchStudents} className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={studentSearchQ}
+                    onChange={(e) => setStudentSearchQ(e.target.value)}
+                    placeholder="Search by Seat Number, Student Name, or College Name..."
+                    className="w-full pl-9 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                  <Search size={15} className="absolute left-3 top-3 text-slate-500" />
+                </div>
+                <button
+                  type="submit"
+                  disabled={studentSearchLoading}
+                  className="px-4 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                >
+                  {studentSearchLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                  <span>Search</span>
+                </button>
+              </form>
+
+              {/* Students Table */}
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Seat No</th>
+                        <th className="py-3 px-4">Student Name</th>
+                        <th className="py-3 px-4">College</th>
+                        <th className="py-3 px-4">Result</th>
+                        <th className="py-3 px-4">SGPA / %</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      {students.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="text-center py-8 text-slate-500">
+                            {studentSearchLoading ? 'Searching database...' : 'No student records found. Enter a search query above.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        students.map((stud) => (
+                          <tr key={stud.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-4 font-mono font-bold text-teal-400">
+                              #{stud.seat_no}
+                            </td>
+                            <td className="py-3 px-4 font-semibold text-white">
+                              {stud.name}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 text-[11px]">
+                              {stud.college_name || 'VNSGU'}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                (stud.result || '').includes('PASS')
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              }`}>
+                                {stud.result || 'N/A'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-mono">
+                              {stud.sgpa ? `SGPA ${stud.sgpa}` : stud.percentage ? `${stud.percentage}%` : '—'}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setSelectedStudent(stud);
+                                    setEditStudentForm({
+                                      name: stud.name || '',
+                                      seat_no: stud.seat_no || '',
+                                      college_name: stud.college_name || '',
+                                      result: stud.result || 'PASS',
+                                      sgpa: stud.sgpa || '',
+                                      percentage: stud.percentage || ''
+                                    });
+                                    setShowEditStudentModal(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-teal-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                  title="Edit Student Record"
+                                >
+                                  <Edit3 size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteStudent(stud)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                  title="Delete Student Record"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 5: SUPPORT TICKETS ==================== */}
+          {activeTab === 'tickets' && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white">Help Desk & Support Inquiries</h2>
+                  <p className="text-xs text-slate-400">Manage inquiries, student questions, and mark correction requests.</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Tracking ID</th>
+                        <th className="py-3 px-4">Applicant</th>
+                        <th className="py-3 px-4">Subject & Message</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      {tickets.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="text-center py-8 text-slate-500">
+                            No support tickets submitted.
+                          </td>
+                        </tr>
+                      ) : (
+                        tickets.map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3 px-4 font-mono font-bold text-indigo-400">
+                              {t.tracking_id || `TCK-${t.id}`}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-bold text-white">{t.name}</div>
+                              <div className="text-[10px] text-slate-400">{t.email}</div>
+                            </td>
+                            <td className="py-3 px-4 max-w-xs truncate">
+                              <div className="font-semibold text-slate-200">{t.subject}</div>
+                              <div className="text-[11px] text-slate-400 truncate">{t.message}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <select
+                                value={t.status}
+                                onChange={(e) => handleUpdateTicketStatus(t.id, e.target.value)}
+                                className="bg-slate-800 border border-slate-700 text-[11px] rounded-lg px-2 py-1 text-slate-200 focus:outline-none"
+                              >
+                                <option value="Open">Open</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                              </select>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setSelectedTicket(t);
+                                    setShowReplyTicketModal(true);
+                                  }}
+                                  className="p-1.5 text-teal-400 hover:bg-slate-800 rounded-lg"
+                                  title="Send Reply"
+                                >
+                                  <Send size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTicket(t.id)}
+                                  className="p-1.5 text-rose-400 hover:bg-slate-800 rounded-lg"
+                                  title="Delete Ticket"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB 6: SECURITY & SMTP ==================== */}
+          {activeTab === 'security' && (
+            <div className="space-y-6 animate-fade-in">
               <div>
-                <h3 className="text-sm font-bold text-white">Cryptographic Password Protection</h3>
-                <p className="text-[11px] text-slate-400">Bcrypt Hashing (10 Salt Rounds) & Anti-SQLi Shield</p>
+                <h2 className="text-xl font-black text-white">Security & System Diagnostics</h2>
+                <p className="text-xs text-slate-400">Database encryption audits, password hashing verification, and SMTP diagnostics.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Bcrypt Security Audit Card */}
+                <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center">
+                        <Lock size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Bcrypt Salted Encryption</h3>
+                        <p className="text-xs text-slate-400">10 rounds salted hashing to prevent cracking & Rainbow tables.</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-xs text-slate-300">
+                      <div className="flex justify-between py-1 border-b border-slate-800">
+                        <span>Protected Accounts:</span>
+                        <span className="font-bold text-teal-400">{stats?.bcryptProtectedCount ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800">
+                        <span>Anti-SQL Injection:</span>
+                        <span className="font-bold text-emerald-400">Active (PostgREST Sanitized)</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span>Auto-Migration on Login:</span>
+                        <span className="font-bold text-emerald-400">Enabled</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleRehashPasswords}
+                    disabled={actionLoading}
+                    className="mt-6 w-full py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw size={14} className={actionLoading ? 'animate-spin' : ''} />
+                    <span>Run Full Database Password Re-hash</span>
+                  </button>
+                </div>
+
+                {/* SMTP Diagnostic Card */}
+                <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
+                        <Mail size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Live SMTP Diagnostic Mailer</h3>
+                        <p className="text-xs text-slate-400">Dispatch live test email to verify Gmail SMTP server delivery.</p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleTestSmtp} className="space-y-3">
+                      <div>
+                        <label className="text-xs text-slate-300 font-semibold block mb-1">Target Recipient Email</label>
+                        <input
+                          type="email"
+                          value={smtpTargetEmail}
+                          onChange={(e) => setSmtpTargetEmail(e.target.value)}
+                          placeholder={user?.email || 'admin@example.com'}
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={actionLoading}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                      >
+                        <Send size={14} className={actionLoading ? 'animate-pulse' : ''} />
+                        <span>{actionLoading ? 'Sending Test...' : 'Send Live Test Email'}</span>
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="space-y-2.5 text-xs text-slate-300">
-              <div className="flex items-center justify-between p-3 bg-slate-950/80 rounded-xl border border-slate-800">
-                <span>Bcrypt Password Encryption</span>
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle2 size={14} /> Active (10 Rounds)
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-slate-950/80 rounded-xl border border-slate-800">
-                <span>SQL / PostgREST Injection Sanitizer</span>
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle2 size={14} /> Active
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-slate-950/80 rounded-xl border border-slate-800">
-                <span>Legacy Plaintext Passwords</span>
-                <span className="text-teal-400 font-bold">Auto-Upgraded on Login</span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleRehashPasswords}
-              disabled={actionLoading}
-              className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
-            >
-              <Lock size={14} />
-              <span>Run One-Click Bcrypt Password Upgrade</span>
-            </button>
-          </div>
-
-          {/* Mail Server Diagnostics Box */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-teal-500/10 text-teal-400 border border-teal-500/30 rounded-xl">
-                <Mail size={20} />
-              </div>
+          {/* ==================== TAB 7: SYSTEM BROADCAST ==================== */}
+          {activeTab === 'broadcast' && (
+            <div className="space-y-6 animate-fade-in max-w-2xl">
               <div>
-                <h3 className="text-sm font-bold text-white">SMTP Email Gateway Diagnostics</h3>
-                <p className="text-[11px] text-slate-400">Automated OTP & Welcome Mail Pipeline</p>
+                <h2 className="text-xl font-black text-white">System Broadcast Announcement</h2>
+                <p className="text-xs text-slate-400">Publish a university-wide broadcast banner on all student and faculty pages.</p>
               </div>
+
+              <form onSubmit={handleSaveBroadcast} className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-md">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="broadcastActive"
+                    checked={broadcastForm.active}
+                    onChange={(e) => setBroadcastForm({ ...broadcastForm, active: e.target.checked })}
+                    className="w-4 h-4 rounded text-teal-500 bg-slate-800 border-slate-700"
+                  />
+                  <label htmlFor="broadcastActive" className="text-xs font-bold text-white cursor-pointer">
+                    Enable System Announcement Banner
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Banner Type</label>
+                  <select
+                    value={broadcastForm.type}
+                    onChange={(e) => setBroadcastForm({ ...broadcastForm, type: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                  >
+                    <option value="info">Information (Blue)</option>
+                    <option value="warning">Warning / Notice (Amber)</option>
+                    <option value="alert">Critical / Maintenance (Red)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Announcement Message</label>
+                  <textarea
+                    rows="3"
+                    value={broadcastForm.message}
+                    onChange={(e) => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
+                    placeholder="e.g., Scheduled server maintenance on Sunday from 2 AM to 4 AM."
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-5 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+                >
+                  <Save size={15} />
+                  <span>Save & Publish Broadcast</span>
+                </button>
+              </form>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ==================== MODAL: ADD USER ==================== */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <PlusCircle size={16} className="text-teal-400" /> Create New Faculty / Admin Account
+              </h3>
+              <button onClick={() => setShowAddUserModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
             </div>
 
-            <p className="text-xs text-slate-400">
-              Test automated delivery of verification emails via Gmail SMTP server (<code className="text-teal-400">prince.kahar.king@gmail.com</code>).
-            </p>
+            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Username (min 6 chars)</label>
+                <input
+                  type="text"
+                  required
+                  value={newUserForm.username}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
+                  placeholder="e.g. prof_sharma"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <label className="text-[11px] text-slate-300 font-semibold">Recipient Email for Test</label>
-              <div className="relative">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Email Address</label>
                 <input
                   type="email"
-                  value={smtpEmail}
-                  onChange={(e) => setSmtpEmail(e.target.value)}
-                  placeholder="name@gmail.com"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs placeholder-slate-500 focus:outline-none focus:border-teal-500"
-                />
-                <Mail size={14} className="absolute left-3 top-3 text-slate-400" />
-              </div>
-            </div>
-
-            <button
-              onClick={handleTestSmtp}
-              disabled={smtpLoading || !smtpEmail.trim()}
-              className="w-full py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {smtpLoading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-              <span>{smtpLoading ? 'Sending Diagnostic Email...' : 'Send Test Diagnostic Email'}</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ===================== RESET PASSWORD MODAL ===================== */}
-      {resetModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-scaleUp">
-            <div className="flex items-center gap-3 text-teal-400">
-              <KeyRound size={24} />
-              <h3 className="text-sm font-black text-white">Reset User Password</h3>
-            </div>
-            <p className="text-xs text-slate-400">
-              Set a new secure password for <strong className="text-white">{resetModal.user?.username}</strong>. It will be immediately hashed using salted Bcrypt.
-            </p>
-            <form onSubmit={handleResetPasswordSubmit} className="space-y-3">
-              <div>
-                <input
-                  type="password"
                   required
-                  value={resetModal.password}
-                  onChange={(e) => setResetModal({ ...resetModal, password: e.target.value })}
-                  placeholder="Enter min. 8 characters"
-                  className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                  placeholder="name@gmail.com or faculty@vnsgu.ac.in"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Mobile Number (10 digits)</label>
+                <input
+                  type="tel"
+                  required
+                  value={newUserForm.phone}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  placeholder="9876543210"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">College / Department</label>
+                <input
+                  type="text"
+                  value={newUserForm.college_name}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, college_name: e.target.value })}
+                  placeholder="Department of Computer Science"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Role</label>
+                  <select
+                    value={newUserForm.role}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                  >
+                    <option value="faculty">Faculty</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={newUserForm.password}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                    placeholder="Defaults to Sascma@2026"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setResetModal({ open: false, user: null, password: '' })}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={actionLoading}
-                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold rounded-xl shadow-md shadow-teal-500/20"
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Creating...' : 'Create Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDIT USER ==================== */}
+      {showEditUserModal && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-teal-400" /> Edit Profile: {selectedUser.username}
+              </h3>
+              <button onClick={() => setShowEditUserModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateUser} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">College Name</label>
+                <input
+                  type="text"
+                  value={editUserForm.college_name}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, college_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editUserForm.email}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={editUserForm.phone}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditUserModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: RESET PASSWORD ==================== */}
+      {showResetPassModal && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <KeyRound size={16} className="text-amber-400" /> Reset Password for {selectedUser.username}
+              </h3>
+              <button onClick={() => setShowResetPassModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPassword} className="space-y-3 text-xs">
+              <p className="text-slate-400 text-[11px]">
+                Password will be encrypted using 10-round salted Bcrypt hash before storage.
+              </p>
+              <div className="relative">
+                <input
+                  type={showNewPass ? 'text' : 'password'}
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Min 8 chars, Aa1@..."
+                  className="w-full px-3 py-2 pr-9 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPass(!showNewPass)}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+                >
+                  {showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-md"
                 >
                   {actionLoading ? 'Saving...' : 'Reset Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: RENAME SESSION ==================== */}
+      {showRenameSessionModal && selectedSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-teal-400" /> Rename Exam Session
+              </h3>
+              <button onClick={() => setShowRenameSessionModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRenameSession} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Session Title</label>
+                <input
+                  type="text"
+                  required
+                  value={sessionRenameText}
+                  onChange={(e) => setSessionRenameText(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowRenameSessionModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Updating...' : 'Save Title'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDIT STUDENT ==================== */}
+      {showEditStudentModal && selectedStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-teal-400" /> Edit Student Record #{selectedStudent.seat_no}
+              </h3>
+              <button onClick={() => setShowEditStudentModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStudent} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Student Name</label>
+                <input
+                  type="text"
+                  value={editStudentForm.name}
+                  onChange={(e) => setEditStudentForm({ ...editStudentForm, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Seat Number</label>
+                  <input
+                    type="text"
+                    value={editStudentForm.seat_no}
+                    onChange={(e) => setEditStudentForm({ ...editStudentForm, seat_no: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Result Status</label>
+                  <select
+                    value={editStudentForm.result}
+                    onChange={(e) => setEditStudentForm({ ...editStudentForm, result: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                  >
+                    <option value="PASS">PASS</option>
+                    <option value="FAIL">FAIL</option>
+                    <option value="ATKT">ATKT</option>
+                    <option value="WH">WH (Withheld)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">SGPA</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editStudentForm.sgpa}
+                    onChange={(e) => setEditStudentForm({ ...editStudentForm, sgpa: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Percentage</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editStudentForm.percentage}
+                    onChange={(e) => setEditStudentForm({ ...editStudentForm, percentage: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditStudentModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Saving...' : 'Save Record'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: REPLY TICKET ==================== */}
+      {showReplyTicketModal && selectedTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Send size={16} className="text-teal-400" /> Resolution Reply to {selectedTicket.name}
+              </h3>
+              <button onClick={() => setShowReplyTicketModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleReplyTicket} className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-800 text-slate-300">
+                <p className="font-bold text-white mb-1">Subject: {selectedTicket.subject}</p>
+                <p className="text-[11px] text-slate-400">{selectedTicket.message}</p>
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Your Resolution Response</label>
+                <textarea
+                  rows="3"
+                  required
+                  value={ticketReplyText}
+                  onChange={(e) => setTicketReplyText(e.target.value)}
+                  placeholder="Type official response..."
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowReplyTicketModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl shadow-md"
+                >
+                  {actionLoading ? 'Sending...' : 'Send Resolution'}
                 </button>
               </div>
             </form>

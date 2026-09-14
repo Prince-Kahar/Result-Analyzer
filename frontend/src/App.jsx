@@ -91,6 +91,11 @@ function AppLayout() {
     );
   }
 
+  // Dedicated Standalone Executive Admin Portal (Zero standard user sidebar or navbar clutter)
+  if (location.pathname === '/admin' || location.pathname.startsWith('/admin/')) {
+    return <AdminPage />;
+  }
+
   // Internal App Workspace Layout
   return (
     <div className="app-container">
