@@ -292,119 +292,48 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      {/* Official Gazette Result Summary Section */}
-      {summaryList && summaryList.length > 0 && (
-        <div className="glass-panel p-5 sm:p-6 border border-slate-700/80 rounded-2xl shadow-xl bg-slate-900/70 relative overflow-hidden space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400">
-                <FileSpreadsheet size={18} />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
-                  Official Gazette Result Summary
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                </h2>
-                <p className="text-[11px] text-slate-400">
-                  Extracted directly from the official VNSGU tabulation gazette
-                </p>
-              </div>
+      {/* Primary KPI Cards Grid (Gazette Result Summary + Academic Metrics) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 kpi-grid">
+        {/* Dynamic Gazette Result Summary Cards */}
+        {summaryList.map((item, idx) => (
+          <div
+            key={idx}
+            className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 hover:border-slate-700/80 transition-all flex flex-col justify-between min-h-[125px] shadow-sm"
+          >
+            <div className="text-[11px] uppercase font-bold tracking-wider text-slate-400">
+              {item.label}
             </div>
-            <div>
-              <span className="text-[11px] font-mono font-bold text-teal-400 bg-teal-950/60 border border-teal-800/60 px-3 py-1 rounded-lg">
-                VNSGU Result Statement
-              </span>
+            <div className={`text-2xl sm:text-3xl font-black mt-3 font-mono tracking-tight ${item.color}`}>
+              {item.value}
             </div>
           </div>
+        ))}
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-            {/* Authentic Tabular Statement matching User Screenshot */}
-            <div className="lg:col-span-6 bg-slate-950/90 border border-slate-800/90 rounded-xl p-4 sm:p-5 shadow-inner flex flex-col justify-between">
-              <div className="text-[11px] font-mono font-bold uppercase text-slate-400 mb-3 tracking-wider flex items-center justify-between">
-                <span>Result Summary :</span>
-                <span className="text-[10px] text-slate-500">Gazette Standard</span>
-              </div>
-              <div className="space-y-2 font-mono text-sm sm:text-base">
-                {summaryList.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
-                    <span className="font-extrabold text-white tracking-wide uppercase">
-                      {item.label}
-                    </span>
-                    <div className="flex items-center gap-4">
-                      <span className="text-slate-400 font-bold">:</span>
-                      <span className={`font-black text-right min-w-[70px] ${item.color}`}>
-                        {item.value}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+        {/* Batch Average SGPA */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 hover:border-slate-700/80 transition-all flex flex-col justify-between min-h-[125px] shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] uppercase font-bold tracking-wider text-slate-400">
+              BATCH AVERAGE SGPA
             </div>
-
-            {/* Quick Metrics Cards */}
-            <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {summaryList.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/60 flex flex-col justify-between hover:border-teal-500/40 transition-all"
-                >
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 truncate">
-                    {item.label}
-                  </div>
-                  <div className={`text-lg sm:text-2xl font-black mt-2 font-mono ${item.color}`}>
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <Award className="text-blue-400/70" size={18} />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black mt-3 font-mono tracking-tight text-blue-400">
+            {stats.avg_sgpa}
           </div>
         </div>
-      )}
 
-      {/* 6 KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 kpi-grid">
-        <StatCard
-          title="Total Registered"
-          value={stats.total}
-          subtext="Students in uploaded gazette"
-          icon={Users}
-          color="teal"
-        />
-        <StatCard
-          title="Passed Candidates"
-          value={stats.passed}
-          subtext={`${stats.pass_percentage}% success rate`}
-          icon={CheckCircle2}
-          color="emerald"
-        />
-        <StatCard
-          title="Backlogs / ATKT"
-          value={stats.atkt}
-          subtext="Eligible for re-exam"
-          icon={AlertTriangle}
-          color="amber"
-        />
-        <StatCard
-          title="Failed / Detained"
-          value={stats.failed}
-          subtext="Academic risk category"
-          icon={AlertTriangle}
-          color="rose"
-        />
-        <StatCard
-          title="Batch Average SGPA"
-          value={stats.avg_sgpa}
-          subtext="Out of 10.0 scale"
-          icon={Award}
-          color="blue"
-        />
-        <StatCard
-          title="Participating Colleges"
-          value={stats.colleges_count}
-          subtext="Institutions enrolled"
-          icon={Building2}
-          color="teal"
-        />
+        {/* Participating Colleges */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 hover:border-slate-700/80 transition-all flex flex-col justify-between min-h-[125px] shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] uppercase font-bold tracking-wider text-slate-400">
+              PARTICIPATING COLLEGES
+            </div>
+            <Building2 className="text-teal-400/70" size={18} />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black mt-3 font-mono tracking-tight text-teal-400">
+            {stats.colleges_count}
+          </div>
+        </div>
       </div>
 
       {/* Visual Analytics Charts Grid */}
