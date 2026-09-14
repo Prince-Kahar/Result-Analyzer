@@ -80,24 +80,16 @@ export const UploadPage = () => {
     setTimeout(() => setCopiedLiveUrl(false), 2000);
   };
 
-  const clearCacheAndRefresh = async () => {
+  const clearCacheAndRefresh = () => {
     setIsClearingCache(true);
-    try {
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const reg of registrations) {
-          await reg.unregister();
-        }
-      }
-      if ('caches' in window) {
-        const cacheKeys = await caches.keys();
-        for (const key of cacheKeys) {
-          await caches.delete(key);
-        }
-      }
-      sessionStorage.clear();
-    } catch (_) {}
-    window.location.reload(true);
+    setFile(null);
+    setError('');
+    setProgressText('');
+    setUploading(false);
+    // Safe, non-destructive reload that preserves browser network & upload pipeline
+    setTimeout(() => {
+      window.location.reload();
+    }, 150);
   };
 
   const handleUpload = async (e) => {

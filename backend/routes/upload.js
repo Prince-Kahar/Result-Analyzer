@@ -77,6 +77,8 @@ async function processUploadedPdf(filePath, originalName, user, res) {
           academic_year: academic_year || '2025-2026',
           college_name: college_name || 'VNSGU Affiliated College',
           max_marks: 700,
+          subject_count: 7,
+          total_students: students.length,
           created_by: userId
         })
         .select()

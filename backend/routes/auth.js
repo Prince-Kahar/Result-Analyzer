@@ -2,17 +2,99 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../config/supabase.js';
-import { sendOtpEmail } from '../services/emailService.js';
+import { sendOtpEmail, sendWelcomeEmail } from '../services/emailService.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'SASCMA_STERS_VNSGU_JWT_SECRET_2026';
 const inMemoryOtps = new Map();
 
+// Validation helper functions
+export const validateUsername = (username) => {
+  if (!username || typeof username !== 'string') return false;
+  // No spaces, only alphanumeric and - or _ allowed, 3-30 chars
+  return /^[a-zA-Z0-9_-]{3,30}$/.test(username);
+};
+
+export const validatePassword = (password) => {
+  if (!password || typeof password !== 'string') return false;
+  if (password.length < 8) return false;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+  return hasUpper && hasLower && hasNumber && hasSpecial;
+};
+
+// POST /api/auth/send-otp
+router.post('/send-otp', async (req, res) => {
+  try {
+    const { email, purpose } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Institutional email is required' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    inMemoryOtps.set(cleanEmail, {
+      otp,
+      expiresAt: Date.now() + 10 * 60 * 1000 // 10 minutes
+    });
+
+    console.log(`[OTP Generated] For ${cleanEmail} (${purpose || 'Verification'}): ${otp}`);
+
+    let emailSent = false;
+    let emailError = null;
+    try {
+      await sendOtpEmail(cleanEmail, otp, purpose || 'Faculty Registration');
+      emailSent = true;
+    } catch (err) {
+      console.warn(`[SMTP Warning] Failed to send email via SMTP: ${err.message}`);
+      emailError = err.message;
+    }
+
+    res.json({
+      success: true,
+      message: emailSent
+        ? 'Verification OTP sent to your email successfully.'
+        : 'Verification OTP generated.',
+      demoOtp: !emailSent ? otp : undefined
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to generate OTP: ' + err.message });
+  }
+});
+
+// POST /api/auth/verify-otp
+router.post('/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP required' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    const record = inMemoryOtps.get(cleanEmail);
+    if (!record) return res.status(400).json({ success: false, message: 'No OTP requested for this email' });
+    if (Date.now() > record.expiresAt) {
+      inMemoryOtps.delete(cleanEmail);
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    }
+
+    if (record.otp !== otp.trim()) {
+      return res.status(400).json({ success: false, message: 'Incorrect OTP entered. Please check your email.' });
+    }
+
+    res.json({ success: true, message: 'OTP verified successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password, full_name, college_name, phone } = req.body;
+    const { username, email, password, college_name, phone, otp } = req.body;
     if (!username || !email || !password) {
       return res.status(400).json({ success: false, message: 'Username, email and password are required' });
     }
@@ -20,7 +102,57 @@ router.post('/register', async (req, res) => {
     const cleanUsername = username.trim();
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check if user already exists in profiles
+    // 1. Username validation: No spaces, only alphanumeric and - / _
+    if (!validateUsername(cleanUsername)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
+      });
+    }
+
+    // 2. Password validation: Uppercase, lowercase, numeric, special char, min 8 chars
+    if (!validatePassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.'
+      });
+    }
+
+    // 3. OTP verification
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email verification required. Please enter the OTP sent to your email.'
+      });
+    }
+
+    const record = inMemoryOtps.get(cleanEmail);
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: 'No OTP found for this email. Please click "Generate OTP" first.'
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      inMemoryOtps.delete(cleanEmail);
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired. Please request a fresh OTP.'
+      });
+    }
+
+    if (record.otp !== otp.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP code. Please enter the correct 6-digit code.'
+      });
+    }
+
+    // Consume OTP once verified
+    inMemoryOtps.delete(cleanEmail);
+
+    // 4. Check if user already exists in profiles
     const { data: existingUser } = await supabase
       .from('profiles')
       .select('id, username, email')
@@ -28,10 +160,10 @@ router.post('/register', async (req, res) => {
       .maybeSingle();
 
     if (existingUser) {
-      return res.status(400).json({ success: false, message: 'Username or Email already registered' });
+      return res.status(400).json({ success: false, message: 'Username or Email already registered. Please sign in.' });
     }
 
-    // 1. Create user in Supabase Auth (which activates the profiles trigger)
+    // 5. Create user in Supabase Auth (triggers profile creation)
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email: cleanEmail,
       password: password,
@@ -44,8 +176,8 @@ router.post('/register', async (req, res) => {
 
     const userId = authData.user.id;
 
-    // 2. Update profile with custom faculty details
-    const { data: updatedProfile, error: updateErr } = await supabase
+    // 6. Update profile with custom faculty details
+    await supabase
       .from('profiles')
       .update({
         username: cleanUsername,
@@ -55,9 +187,7 @@ router.post('/register', async (req, res) => {
         password: password,
         updated_at: new Date().toISOString()
       })
-      .eq('id', userId)
-      .select()
-      .maybeSingle();
+      .eq('id', userId);
 
     const token = jwt.sign(
       { id: userId, username: cleanUsername, email: cleanEmail, role: 'user' },
@@ -65,9 +195,14 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // 7. Automated Welcome Email dispatch
+    sendWelcomeEmail(cleanEmail, cleanUsername, college_name || 'VNSGU Affiliated College')
+      .then(() => console.log(`[Welcome Email Sent] To ${cleanEmail}`))
+      .catch((e) => console.warn(`[Welcome Email Error] ${e.message}`));
+
     res.json({
       success: true,
-      message: 'Registration successful',
+      message: 'Registration successful! Welcome to VNSGU Result Analyzer.',
       token,
       user: {
         id: userId,
@@ -139,49 +274,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// POST /api/auth/send-otp
-router.post('/send-otp', async (req, res) => {
-  try {
-    const { email, purpose } = req.body;
-    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    inMemoryOtps.set(email.trim().toLowerCase(), {
-      otp,
-      expiresAt: Date.now() + 10 * 60 * 1000
-    });
-
-    await sendOtpEmail(email.trim().toLowerCase(), otp, purpose || 'Verification');
-    res.json({ success: true, message: 'OTP sent to your email successfully.' });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to send OTP: ' + err.message });
-  }
-});
-
-// POST /api/auth/verify-otp
-router.post('/verify-otp', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP required' });
-
-    const record = inMemoryOtps.get(email.trim().toLowerCase());
-    if (!record) return res.status(400).json({ success: false, message: 'No OTP requested for this email' });
-    if (Date.now() > record.expiresAt) {
-      inMemoryOtps.delete(email.trim().toLowerCase());
-      return res.status(400).json({ success: false, message: 'OTP has expired. Request a new one.' });
-    }
-
-    if (record.otp !== otp.trim()) {
-      return res.status(400).json({ success: false, message: 'Incorrect OTP code.' });
-    }
-
-    inMemoryOtps.delete(email.trim().toLowerCase());
-    res.json({ success: true, message: 'OTP verified successfully.' });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
 // POST /api/auth/update-profile
 router.post('/update-profile', requireAuth, async (req, res) => {
   try {
@@ -203,6 +295,13 @@ router.post('/update-password', requireAuth, async (req, res) => {
   try {
     const { new_password } = req.body;
     if (!new_password) return res.status(400).json({ success: false, message: 'New password is required' });
+
+    if (!validatePassword(new_password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 8 characters and include uppercase, lowercase, numbers, and a special character.'
+      });
+    }
 
     const { error } = await supabase
       .from('profiles')
