@@ -9,11 +9,45 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'SASCMA_STERS_VNSGU_JWT_SECRET_2026';
 const inMemoryOtps = new Map();
 
-// Validation helper functions
+// ==================== VALIDATION HELPER FUNCTIONS ====================
+
 export const validateUsername = (username) => {
   if (!username || typeof username !== 'string') return false;
   // No spaces, only alphanumeric and - or _ allowed, 3-30 chars
   return /^[a-zA-Z0-9_-]{3,30}$/.test(username);
+};
+
+export const validateEmail = (email) => {
+  if (!email || typeof email !== 'string') return false;
+  const cleanEmail = email.trim();
+  if (/\s/.test(cleanEmail)) return false;
+  // RFC standard email pattern with proper domain and min 2-letter TLD
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(cleanEmail)) return false;
+  const parts = cleanEmail.split('@');
+  if (parts.length !== 2) return false;
+  const domainParts = parts[1].split('.');
+  if (domainParts.length < 2) return false;
+  const tld = domainParts[domainParts.length - 1];
+  return /^[a-zA-Z]{2,}$/.test(tld);
+};
+
+export const cleanPhone = (phone) => {
+  if (!phone || typeof phone !== 'string') return '';
+  let cleaned = phone.replace(/\D/g, '');
+  if (cleaned.startsWith('91') && cleaned.length === 12) {
+    cleaned = cleaned.slice(2);
+  } else if (cleaned.startsWith('0') && cleaned.length === 11) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned.slice(-10);
+};
+
+export const validatePhone = (phone) => {
+  if (!phone || typeof phone !== 'string') return false;
+  const cleaned = cleanPhone(phone);
+  // Valid Indian mobile number: starts with 6, 7, 8, 9 and has exactly 10 digits
+  return /^[6-9]\d{9}$/.test(cleaned);
 };
 
 export const validatePassword = (password) => {
@@ -25,6 +59,8 @@ export const validatePassword = (password) => {
   const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
   return hasUpper && hasLower && hasNumber && hasSpecial;
 };
+
+// ==================== REAL-TIME VALIDATION ENDPOINTS ====================
 
 // GET /api/auth/check-username - Real-time username uniqueness check
 router.get('/check-username', async (req, res) => {
@@ -72,17 +108,21 @@ router.get('/check-username', async (req, res) => {
   }
 });
 
-// GET /api/auth/check-email - Real-time email uniqueness check
+// GET /api/auth/check-email - Real-time email uniqueness & format check
 router.get('/check-email', async (req, res) => {
   try {
     const { email } = req.query;
     if (!email || !email.trim()) {
-      return res.status(400).json({ available: false, message: 'Email is required' });
+      return res.status(400).json({ available: false, valid: false, message: 'Email is required' });
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      return res.json({ available: false, message: 'Invalid email format' });
+    if (!validateEmail(cleanEmail)) {
+      return res.json({
+        available: false,
+        valid: false,
+        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+      });
     }
 
     const { data: existingEmail, error } = await supabase
@@ -99,35 +139,74 @@ router.get('/check-email', async (req, res) => {
     if (existingEmail) {
       return res.json({
         available: false,
+        valid: true,
         message: 'This email is already registered in our database. Please sign in.'
       });
     }
 
     return res.json({
       available: true,
-      message: 'Email is available.'
+      valid: true,
+      message: 'Email is valid & available.'
     });
   } catch (err) {
     res.status(500).json({ available: false, message: err.message });
   }
 });
 
-// POST /api/auth/send-otp - Strict check: OTP only generated/sent if email & username do NOT exist in DB for registration
+// GET /api/auth/check-phone - Real-time phone format check
+router.get('/check-phone', async (req, res) => {
+  try {
+    const { phone } = req.query;
+    if (!phone || !phone.trim()) {
+      return res.status(400).json({ valid: false, message: 'Phone number is required' });
+    }
+
+    if (!validatePhone(phone)) {
+      return res.json({
+        valid: false,
+        message: 'Mobile number must be a valid 10-digit number starting with 6, 7, 8, or 9.'
+      });
+    }
+
+    return res.json({
+      valid: true,
+      message: 'Mobile number is valid.'
+    });
+  } catch (err) {
+    res.status(500).json({ valid: false, message: err.message });
+  }
+});
+
+// ==================== AUTHENTICATION & OTP ROUTES ====================
+
+// POST /api/auth/send-otp - Strict check: OTP only generated/sent if email, username & phone pass validation
 router.post('/send-otp', async (req, res) => {
   try {
-    const { email, purpose, username } = req.body;
+    const { email, purpose, username, phone } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Institutional email is required' });
 
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
+    if (!validateEmail(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+      });
     }
 
     const isRegistration = !purpose || purpose.toLowerCase().includes('regist') || purpose.toLowerCase().includes('faculty');
 
-    // 1. STRICT REGISTRATION CHECK: Agar email ya username database me ho, to OTP send NAHI hona chahiye
+    // 1. STRICT REGISTRATION CHECKS:
     if (isRegistration) {
-      // Check email in profiles
+      // Validate mobile number if provided
+      if (phone && !validatePhone(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.'
+        });
+      }
+
+      // Check email in profiles - agar database me ho to OTP send NAHI hona chahiye
       const { data: existingEmail, error: emailErr } = await supabase
         .from('profiles')
         .select('id, email')
@@ -180,7 +259,7 @@ router.post('/send-otp', async (req, res) => {
       }
     }
 
-    // 2. Generate 6-digit OTP (ONLY reached if all database uniqueness checks pass)
+    // 2. Generate 6-digit OTP (ONLY reached if all database & format checks pass)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     inMemoryOtps.set(cleanEmail, {
       otp,
@@ -254,7 +333,24 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 2. Password validation: Uppercase, lowercase, numeric, special char, min 8 chars
+    // 2. Email validation: Valid format
+    if (!validateEmail(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).'
+      });
+    }
+
+    // 3. Mobile Number validation: Valid 10-digit number
+    if (!phone || !validatePhone(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.'
+      });
+    }
+    const cleanedPhone = cleanPhone(phone);
+
+    // 4. Password validation: Uppercase, lowercase, numeric, special char, min 8 chars
     if (!validatePassword(password)) {
       return res.status(400).json({
         success: false,
@@ -262,7 +358,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 3. OTP verification
+    // 5. OTP verification
     if (!otp) {
       return res.status(400).json({
         success: false,
@@ -296,7 +392,7 @@ router.post('/register', async (req, res) => {
     // Consume OTP once verified
     inMemoryOtps.delete(cleanEmail);
 
-    // 4. Double check if user already exists in profiles
+    // 6. Double check if user already exists in profiles
     const { data: existingUser } = await supabase
       .from('profiles')
       .select('id, username, email')
@@ -307,7 +403,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username or Email already registered. Please sign in.' });
     }
 
-    // 5. Create user in Supabase Auth (triggers profile creation)
+    // 7. Create user in Supabase Auth (triggers profile creation)
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email: cleanEmail,
       password: password,
@@ -320,14 +416,14 @@ router.post('/register', async (req, res) => {
 
     const userId = authData.user.id;
 
-    // 6. Update profile with custom faculty details
+    // 8. Update profile with custom faculty details including verified phone
     await supabase
       .from('profiles')
       .update({
         username: cleanUsername,
         college_name: college_name || 'VNSGU Affiliated College',
         course: 'All Courses',
-        phone: phone || '',
+        phone: cleanedPhone,
         password: password,
         updated_at: new Date().toISOString()
       })
@@ -339,7 +435,7 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // 7. Automated Welcome Email dispatch
+    // 9. Automated Welcome Email dispatch
     sendWelcomeEmail(cleanEmail, cleanUsername, college_name || 'VNSGU Affiliated College')
       .then(() => console.log(`[Welcome Email Sent] To ${cleanEmail}`))
       .catch((e) => console.warn(`[Welcome Email Error] ${e.message}`));
@@ -352,7 +448,7 @@ router.post('/register', async (req, res) => {
         id: userId,
         username: cleanUsername,
         email: cleanEmail,
-        phone: phone || '',
+        phone: cleanedPhone,
         college_name: college_name || 'VNSGU Affiliated College'
       }
     });
@@ -422,9 +518,21 @@ router.post('/login', async (req, res) => {
 router.post('/update-profile', requireAuth, async (req, res) => {
   try {
     const { phone, college_name } = req.body;
+    const updateData = {};
+    if (phone) {
+      if (!validatePhone(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.'
+        });
+      }
+      updateData.phone = cleanPhone(phone);
+    }
+    if (college_name) updateData.college_name = college_name;
+
     const { error } = await supabase
       .from('profiles')
-      .update({ phone: phone || '' })
+      .update(updateData)
       .eq('id', req.user.id);
 
     if (error) return res.status(500).json({ success: false, message: error.message });

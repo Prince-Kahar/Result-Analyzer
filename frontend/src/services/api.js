@@ -51,7 +51,8 @@ export const api = {
   // Auth
   login: (creds) => request('/auth/login', { method: 'POST', body: JSON.stringify(creds) }),
   register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
-  sendOtp: (email, purpose, username) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ email, purpose, username }) }),
+  sendOtp: (email, purpose, username, phone) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ email, purpose, username, phone }) }),
+  checkPhone: (phone) => request('/auth/check-phone?phone=' + encodeURIComponent(phone)),
   checkUsername: (username) => request('/auth/check-username?username=' + encodeURIComponent(username)),
   checkEmail: (email) => request('/auth/check-email?email=' + encodeURIComponent(email)),
   verifyOtp: (email, otp) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email, otp }) }),

@@ -61,7 +61,9 @@ export const LoginPage = () => {
     return () => clearTimeout(timer);
   }, [regCountdown]);
 
-  // Username validation rules
+  // ==================== VALIDATION RULES ====================
+
+  // 1. Username Validation
   const hasNoSpaces = !/\s/.test(regUsername);
   const isUsernameCharsValid = /^[a-zA-Z0-9_-]*$/.test(regUsername);
   const isUsernameFormatValid = regUsername.length >= 3 && regUsername.length <= 30 && hasNoSpaces && /^[a-zA-Z0-9_-]+$/.test(regUsername);
@@ -98,12 +100,18 @@ export const LoginPage = () => {
     return () => clearTimeout(timer);
   }, [regUsername, hasNoSpaces, isUsernameCharsValid]);
 
-  // Email validation rules
-  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim());
+  // 2. Email Validation
+  const cleanEmailStr = regEmail.trim();
+  const hasEmailNoSpaces = !/\s/.test(cleanEmailStr);
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  const emailParts = cleanEmailStr.split('@');
+  const emailDomainParts = emailParts[1] ? emailParts[1].split('.') : [];
+  const emailTld = emailDomainParts.length >= 2 ? emailDomainParts[emailDomainParts.length - 1] : '';
+  const isEmailFormatValid = hasEmailNoSpaces && emailRegex.test(cleanEmailStr) && /^[a-zA-Z]{2,}$/.test(emailTld);
 
   // Real-time Email Check against Database (Debounced 400ms)
   useEffect(() => {
-    if (!isEmailValid) {
+    if (!isEmailFormatValid) {
       setEmailCheckLoading(false);
       setEmailAvailable(null);
       setEmailMsg('');
@@ -113,7 +121,7 @@ export const LoginPage = () => {
     setEmailCheckLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await api.checkEmail(regEmail.trim());
+        const res = await api.checkEmail(cleanEmailStr);
         if (res.available) {
           setEmailAvailable(true);
           setEmailMsg('Email is available for registration');
@@ -131,9 +139,24 @@ export const LoginPage = () => {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [regEmail, isEmailValid]);
+  }, [cleanEmailStr, isEmailFormatValid]);
 
-  // Password validation rules
+  // 3. Mobile Number Validation (Strict 10-digit Indian mobile number starting with 6, 7, 8, or 9)
+  const cleanPhoneDigits = regPhone.replace(/\D/g, '');
+  const isPhoneValid = /^[6-9]\d{9}$/.test(cleanPhoneDigits);
+
+  const handlePhoneChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '');
+    // Strip leading 91 or 0 if pasted
+    if (val.startsWith('91') && val.length > 10) {
+      val = val.slice(2);
+    } else if (val.startsWith('0') && val.length > 10) {
+      val = val.slice(1);
+    }
+    setRegPhone(val.slice(0, 10));
+  };
+
+  // 4. Password validation rules
   const hasMinLen = regPassword.length >= 8;
   const hasUpper = /[A-Z]/.test(regPassword);
   const hasLower = /[a-z]/.test(regPassword);
@@ -141,13 +164,14 @@ export const LoginPage = () => {
   const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(regPassword);
   const isPasswordValid = hasMinLen && hasUpper && hasLower && hasNumber && hasSpecial;
 
-  // Can request OTP: Valid format, database confirms unique, password valid, college filled
+  // Can request OTP: Valid format, database confirms unique, valid email, valid mobile, valid password, college filled
   const canRequestOtp = isUsernameFormatValid &&
     usernameAvailable === true &&
     !usernameCheckLoading &&
-    isEmailValid &&
+    isEmailFormatValid &&
     emailAvailable === true &&
     !emailCheckLoading &&
+    isPhoneValid &&
     isPasswordValid &&
     regCollege.trim().length >= 2;
 
@@ -178,13 +202,18 @@ export const LoginPage = () => {
     if (usernameAvailable === false) {
       return setError(`Username "${regUsername.trim()}" is already taken in our database. Please choose a different username.`);
     }
+    if (!isEmailFormatValid) {
+      return setError('Please enter a valid institutional email address (e.g. faculty@college.vnsgu.ac.in).');
+    }
     if (emailAvailable === false) {
       return setError('This email is already registered in our database. Please sign in or use Forgot Password.');
+    }
+    if (!isPhoneValid) {
+      return setError('Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.');
     }
     if (!canRequestOtp) {
       if (!isUsernameFormatValid) return setError('Please enter a valid username (no spaces, only letters, numbers, hyphens, and underscores).');
       if (usernameAvailable !== true) return setError('Please wait for username availability check.');
-      if (!isEmailValid) return setError('Please enter a valid institutional email address.');
       if (emailAvailable !== true) return setError('Please wait for email check.');
       if (!isPasswordValid) return setError('Password must meet all 5 security requirements.');
       if (!regCollege.trim()) return setError('Please enter your college/department name.');
@@ -196,10 +225,10 @@ export const LoginPage = () => {
     setRegOtpLoading(true);
 
     try {
-      const res = await api.sendOtp(regEmail.trim(), 'Faculty Registration', regUsername.trim());
+      const res = await api.sendOtp(cleanEmailStr, 'Faculty Registration', regUsername.trim(), cleanPhoneDigits);
       setRegOtpSent(true);
       setRegCountdown(60);
-      setSuccessMsg(res.message || `Verification OTP has been sent to ${regEmail.trim()}. Please check your inbox.`);
+      setSuccessMsg(res.message || `Verification OTP has been sent to ${cleanEmailStr}. Please check your inbox.`);
       if (res.demoOtp) {
         console.log('Demo OTP (development/fallback):', res.demoOtp);
       }
@@ -218,8 +247,16 @@ export const LoginPage = () => {
       return setError('Username is already taken in our database. Please choose another username.');
     }
 
+    if (!isEmailFormatValid) {
+      return setError('Please enter a valid institutional email address.');
+    }
+
     if (emailAvailable === false) {
       return setError('This email is already registered in our database. Please log in.');
+    }
+
+    if (!isPhoneValid) {
+      return setError('Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.');
     }
 
     if (!regOtpSent) {
@@ -234,9 +271,9 @@ export const LoginPage = () => {
     try {
       await register({
         username: regUsername.trim(),
-        email: regEmail.trim(),
+        email: cleanEmailStr,
         password: regPassword,
-        phone: regPhone.trim(),
+        phone: cleanPhoneDigits,
         college_name: regCollege.trim(),
         otp: regOtp.trim()
       });
@@ -412,7 +449,7 @@ export const LoginPage = () => {
         {/* ===================== REGISTRATION FORM WITH OTP & REAL-TIME CHECKS ===================== */}
         {tab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-4 text-xs">
-            {/* Username Input with Real-time DB Uniqueness Check */}
+            {/* 1. Username Input with Real-time DB Uniqueness Check */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-slate-300 font-semibold">Username</label>
@@ -481,9 +518,12 @@ export const LoginPage = () => {
               )}
             </div>
 
-            {/* Institutional Email with Real-time DB Pre-check */}
+            {/* 2. Institutional Email with Strict Format & DB Check */}
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Institutional Email</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-slate-300 font-semibold">Institutional Email</label>
+                <span className="text-[10px] text-slate-400">Must be valid format</span>
+              </div>
               <div className="relative">
                 <input
                   type="email"
@@ -492,9 +532,9 @@ export const LoginPage = () => {
                   onChange={(e) => setRegEmail(e.target.value)}
                   placeholder="faculty@college.vnsgu.ac.in"
                   className={`w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 focus:outline-none transition-colors ${
-                    regEmail.length === 0
+                    cleanEmailStr.length === 0
                       ? 'border-slate-700 focus:border-teal-500'
-                      : emailAvailable === false
+                      : !isEmailFormatValid || emailAvailable === false
                       ? 'border-rose-500/70 focus:border-rose-400'
                       : emailAvailable === true
                       ? 'border-emerald-500/60 focus:border-emerald-400'
@@ -502,13 +542,13 @@ export const LoginPage = () => {
                   }`}
                 />
                 <Mail size={15} className="absolute left-3 top-3 text-slate-400" />
-                {regEmail.length > 0 && isEmailValid && (
+                {cleanEmailStr.length > 0 && (
                   <div className="absolute right-3 top-3">
                     {emailCheckLoading ? (
                       <RefreshCw size={14} className="animate-spin text-teal-400" />
-                    ) : emailAvailable === true ? (
+                    ) : isEmailFormatValid && emailAvailable === true ? (
                       <Check size={14} className="text-emerald-400" />
-                    ) : emailAvailable === false ? (
+                    ) : !isEmailFormatValid || emailAvailable === false ? (
                       <X size={14} className="text-rose-400" />
                     ) : null}
                   </div>
@@ -516,15 +556,23 @@ export const LoginPage = () => {
               </div>
 
               {/* Dynamic Email Status Badge */}
-              {regEmail.length > 0 && isEmailValid && (
+              {cleanEmailStr.length > 0 && (
                 <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                  {emailCheckLoading ? (
+                  {!hasEmailNoSpaces ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Spaces are not allowed in email address.
+                    </span>
+                  ) : !isEmailFormatValid ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Please enter a valid email address (e.g. faculty@college.vnsgu.ac.in).
+                    </span>
+                  ) : emailCheckLoading ? (
                     <span className="text-teal-400 flex items-center gap-1">
                       <RefreshCw size={12} className="animate-spin" /> Checking email in database...
                     </span>
                   ) : emailAvailable === true ? (
                     <span className="text-emerald-400 flex items-center gap-1 font-medium">
-                      <CheckCircle2 size={12} /> Email is available for new registration
+                      <CheckCircle2 size={12} /> Email is valid & available for registration
                     </span>
                   ) : emailAvailable === false ? (
                     <span className="text-rose-400 flex items-center gap-1 font-medium">
@@ -535,7 +583,68 @@ export const LoginPage = () => {
               )}
             </div>
 
-            {/* College Name */}
+            {/* 3. Mobile Number with 10-Digit Indian Validation */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-slate-300 font-semibold">Mobile Number</label>
+                <span className="text-[10px] text-slate-400">10-digit, starts with 6-9</span>
+              </div>
+              <div className="relative flex items-center">
+                <div className="absolute left-3 flex items-center gap-1 text-slate-400 pointer-events-none">
+                  <Phone size={14} />
+                  <span className="text-[11px] font-mono text-slate-300 pl-1 border-r border-slate-700 pr-2">+91</span>
+                </div>
+                <input
+                  type="tel"
+                  required
+                  maxLength={10}
+                  value={regPhone}
+                  onChange={handlePhoneChange}
+                  placeholder="9876543210"
+                  className={`w-full pl-16 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 font-mono tracking-wider focus:outline-none transition-colors ${
+                    regPhone.length === 0
+                      ? 'border-slate-700 focus:border-teal-500'
+                      : isPhoneValid
+                      ? 'border-emerald-500/60 focus:border-emerald-400'
+                      : 'border-rose-500/70 focus:border-rose-400'
+                  }`}
+                />
+                {regPhone.length > 0 && (
+                  <div className="absolute right-3">
+                    {isPhoneValid ? (
+                      <Check size={14} className="text-emerald-400" />
+                    ) : (
+                      <X size={14} className="text-rose-400" />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Dynamic Mobile Number Status Badge */}
+              {regPhone.length > 0 && (
+                <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                  {!/^[6-9]/.test(regPhone) ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Mobile number must start with 6, 7, 8, or 9.
+                    </span>
+                  ) : regPhone.length < 10 ? (
+                    <span className="text-amber-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Enter complete 10-digit number ({10 - regPhone.length} digits left).
+                    </span>
+                  ) : isPhoneValid ? (
+                    <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                      <CheckCircle2 size={12} /> Valid 10-digit mobile number!
+                    </span>
+                  ) : (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Please enter a valid 10-digit mobile number.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 4. College / Department Name */}
             <div>
               <label className="block text-slate-300 font-semibold mb-1">College / Department Name</label>
               <div className="relative">
@@ -551,22 +660,7 @@ export const LoginPage = () => {
               </div>
             </div>
 
-            {/* Phone Number */}
-            <div>
-              <label className="block text-slate-300 font-semibold mb-1">Phone Number (Optional)</label>
-              <div className="relative">
-                <input
-                  type="tel"
-                  value={regPhone}
-                  onChange={(e) => setRegPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
-                />
-                <Phone size={15} className="absolute left-3 top-3 text-slate-400" />
-              </div>
-            </div>
-
-            {/* Password with Comprehensive Checklist */}
+            {/* 5. Password with Comprehensive Checklist */}
             <div>
               <label className="block text-slate-300 font-semibold mb-1">Create Password</label>
               <div className="relative">
@@ -656,7 +750,7 @@ export const LoginPage = () => {
                     className="w-full px-3 py-2.5 bg-slate-950 border border-teal-500/40 rounded-xl text-white text-center font-mono text-base tracking-widest focus:outline-none focus:border-teal-400"
                   />
                   <p className="text-[10px] text-slate-400 mt-1.5 text-center">
-                    A 6-digit automated verification code was sent to <strong className="text-slate-200">{regEmail}</strong>
+                    A 6-digit automated verification code was sent to <strong className="text-slate-200">{cleanEmailStr}</strong>
                   </p>
                 </div>
 
