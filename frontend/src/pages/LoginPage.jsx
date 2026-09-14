@@ -30,6 +30,16 @@ export const LoginPage = () => {
   const [regPhone, setRegPhone] = useState('');
   const [regCollege, setRegCollege] = useState('');
 
+  // Real-time Username Check State
+  const [usernameCheckLoading, setUsernameCheckLoading] = useState(false);
+  const [usernameAvailable, setUsernameAvailable] = useState(null); // null | true | false
+  const [usernameMsg, setUsernameMsg] = useState('');
+
+  // Real-time Email Check State
+  const [emailCheckLoading, setEmailCheckLoading] = useState(false);
+  const [emailAvailable, setEmailAvailable] = useState(null); // null | true | false
+  const [emailMsg, setEmailMsg] = useState('');
+
   // Register OTP state
   const [regOtp, setRegOtp] = useState('');
   const [regOtpSent, setRegOtpSent] = useState(false);
@@ -54,7 +64,74 @@ export const LoginPage = () => {
   // Username validation rules
   const hasNoSpaces = !/\s/.test(regUsername);
   const isUsernameCharsValid = /^[a-zA-Z0-9_-]*$/.test(regUsername);
-  const isUsernameValid = regUsername.length >= 3 && regUsername.length <= 30 && hasNoSpaces && /^[a-zA-Z0-9_-]+$/.test(regUsername);
+  const isUsernameFormatValid = regUsername.length >= 3 && regUsername.length <= 30 && hasNoSpaces && /^[a-zA-Z0-9_-]+$/.test(regUsername);
+
+  // Real-time Username Check against Database (Debounced 350ms)
+  useEffect(() => {
+    if (!regUsername || regUsername.trim().length < 3 || !hasNoSpaces || !isUsernameCharsValid) {
+      setUsernameCheckLoading(false);
+      setUsernameAvailable(null);
+      setUsernameMsg('');
+      return;
+    }
+
+    setUsernameCheckLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.checkUsername(regUsername.trim());
+        if (res.available) {
+          setUsernameAvailable(true);
+          setUsernameMsg('Username is unique & available');
+        } else {
+          setUsernameAvailable(false);
+          setUsernameMsg(res.message || 'Username is already taken in database.');
+        }
+      } catch (err) {
+        console.warn('Username check error:', err);
+        setUsernameAvailable(null);
+        setUsernameMsg('');
+      } finally {
+        setUsernameCheckLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [regUsername, hasNoSpaces, isUsernameCharsValid]);
+
+  // Email validation rules
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim());
+
+  // Real-time Email Check against Database (Debounced 400ms)
+  useEffect(() => {
+    if (!isEmailValid) {
+      setEmailCheckLoading(false);
+      setEmailAvailable(null);
+      setEmailMsg('');
+      return;
+    }
+
+    setEmailCheckLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.checkEmail(regEmail.trim());
+        if (res.available) {
+          setEmailAvailable(true);
+          setEmailMsg('Email is available for registration');
+        } else {
+          setEmailAvailable(false);
+          setEmailMsg('This email is already registered in our database. Please log in.');
+        }
+      } catch (err) {
+        console.warn('Email check error:', err);
+        setEmailAvailable(null);
+        setEmailMsg('');
+      } finally {
+        setEmailCheckLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [regEmail, isEmailValid]);
 
   // Password validation rules
   const hasMinLen = regPassword.length >= 8;
@@ -64,11 +141,15 @@ export const LoginPage = () => {
   const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(regPassword);
   const isPasswordValid = hasMinLen && hasUpper && hasLower && hasNumber && hasSpecial;
 
-  // Email validation
-  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim());
-
-  // Can request OTP
-  const canRequestOtp = isUsernameValid && isEmailValid && isPasswordValid && regCollege.trim().length >= 2;
+  // Can request OTP: Valid format, database confirms unique, password valid, college filled
+  const canRequestOtp = isUsernameFormatValid &&
+    usernameAvailable === true &&
+    !usernameCheckLoading &&
+    isEmailValid &&
+    emailAvailable === true &&
+    !emailCheckLoading &&
+    isPasswordValid &&
+    regCollege.trim().length >= 2;
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -94,9 +175,17 @@ export const LoginPage = () => {
   };
 
   const handleSendRegisterOtp = async () => {
+    if (usernameAvailable === false) {
+      return setError(`Username "${regUsername.trim()}" is already taken in our database. Please choose a different username.`);
+    }
+    if (emailAvailable === false) {
+      return setError('This email is already registered in our database. Please sign in or use Forgot Password.');
+    }
     if (!canRequestOtp) {
-      if (!isUsernameValid) return setError('Please enter a valid username (no spaces, only letters, numbers, hyphens, and underscores).');
+      if (!isUsernameFormatValid) return setError('Please enter a valid username (no spaces, only letters, numbers, hyphens, and underscores).');
+      if (usernameAvailable !== true) return setError('Please wait for username availability check.');
       if (!isEmailValid) return setError('Please enter a valid institutional email address.');
+      if (emailAvailable !== true) return setError('Please wait for email check.');
       if (!isPasswordValid) return setError('Password must meet all 5 security requirements.');
       if (!regCollege.trim()) return setError('Please enter your college/department name.');
       return;
@@ -107,7 +196,7 @@ export const LoginPage = () => {
     setRegOtpLoading(true);
 
     try {
-      const res = await api.sendOtp(regEmail.trim(), 'Faculty Registration');
+      const res = await api.sendOtp(regEmail.trim(), 'Faculty Registration', regUsername.trim());
       setRegOtpSent(true);
       setRegCountdown(60);
       setSuccessMsg(res.message || `Verification OTP has been sent to ${regEmail.trim()}. Please check your inbox.`);
@@ -124,6 +213,14 @@ export const LoginPage = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (usernameAvailable === false) {
+      return setError('Username is already taken in our database. Please choose another username.');
+    }
+
+    if (emailAvailable === false) {
+      return setError('This email is already registered in our database. Please log in.');
+    }
 
     if (!regOtpSent) {
       return setError('Please click "Generate OTP" to verify your email first.');
@@ -184,66 +281,93 @@ export const LoginPage = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto py-8 px-4">
-      <div className="glass-panel p-6 sm:p-8 space-y-6">
-        {/* Header Branding */}
-        <div className="text-center space-y-2">
-          <img src="/assets/logo.png" alt="SASCMA" className="w-12 h-12 mx-auto object-contain drop-shadow" />
-          <h2 className="text-xl font-bold text-white tracking-tight">VNSGU Intelligence Portal</h2>
-          <p className="text-xs text-slate-400">Authorized Academic Evaluation & Analytics Suite</p>
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      {/* Dynamic Background Glows */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Main Container */}
+      <div className="w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl z-10 my-8">
+        
+        {/* Header */}
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center p-3 bg-teal-500/10 rounded-2xl border border-teal-500/20 text-teal-400 mb-3 shadow-inner">
+            <ShieldCheck size={28} />
+          </div>
+          <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+            VNSGU Portal Access
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            South Gujarat University Result & Analytics Engine
+          </p>
         </div>
 
-        {/* Tab switchers */}
-        <div className="grid grid-cols-2 p-1 bg-slate-800/60 rounded-xl text-xs font-semibold">
+        {/* Tab Selector */}
+        <div className="grid grid-cols-3 gap-1 bg-slate-950/80 p-1 rounded-2xl border border-slate-800 mb-6">
           <button
-            type="button"
             onClick={() => { setTab('login'); setError(''); setSuccessMsg(''); }}
-            className={`py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-              tab === 'login' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              tab === 'login'
+                ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20 font-black'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
-            <LogIn size={14} />
+            <LogIn size={13} />
             <span>Sign In</span>
           </button>
+
           <button
-            type="button"
             onClick={() => { setTab('register'); setError(''); setSuccessMsg(''); }}
-            className={`py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-              tab === 'register' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              tab === 'register'
+                ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20 font-black'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
-            <UserPlus size={14} />
+            <UserPlus size={13} />
             <span>Register</span>
+          </button>
+
+          <button
+            onClick={() => { setTab('forgot'); setError(''); setSuccessMsg(''); }}
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              tab === 'forgot'
+                ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20 font-black'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <KeyRound size={13} />
+            <span>Reset</span>
           </button>
         </div>
 
-        {/* Global Notifications */}
+        {/* Alerts */}
         {error && (
-          <div className="flex items-start gap-2.5 p-3 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300 rounded-xl leading-relaxed">
-            <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-rose-400" />
+          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-start gap-2.5 text-xs text-rose-400 animate-shake">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="flex items-start gap-2.5 p-3 text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-xl leading-relaxed">
-            <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5 text-emerald-400" />
+          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-start gap-2.5 text-xs text-emerald-400">
+            <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
             <span>{successMsg}</span>
           </div>
         )}
 
-        {/* ===================== LOGIN FORM ===================== */}
+        {/* ===================== SIGN IN FORM ===================== */}
         {tab === 'login' && (
           <form onSubmit={handleLogin} className="space-y-4 text-xs">
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Username / Institutional Email</label>
+              <label className="block text-slate-300 font-semibold mb-1">Username or Email</label>
               <div className="relative">
                 <input
                   type="text"
                   required
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
-                  placeholder="sascma_admin or faculty@vnsgu.ac.in"
+                  placeholder="Enter username or institutional email"
                   className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                 />
                 <User size={15} className="absolute left-3 top-3 text-slate-400" />
@@ -255,10 +379,10 @@ export const LoginPage = () => {
                 <label className="text-slate-300 font-semibold">Password</label>
                 <button
                   type="button"
-                  onClick={() => { setTab('forgot'); setError(''); setSuccessMsg(''); }}
-                  className="text-[11px] text-teal-400 hover:text-teal-300 font-medium transition-colors"
+                  onClick={() => setTab('forgot')}
+                  className="text-teal-400 hover:underline text-[11px]"
                 >
-                  Forgot Password?
+                  Forgot password?
                 </button>
               </div>
               <div className="relative">
@@ -285,10 +409,10 @@ export const LoginPage = () => {
           </form>
         )}
 
-        {/* ===================== REGISTRATION FORM WITH OTP ===================== */}
+        {/* ===================== REGISTRATION FORM WITH OTP & REAL-TIME CHECKS ===================== */}
         {tab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-4 text-xs">
-            {/* Username Input with Validation */}
+            {/* Username Input with Real-time DB Uniqueness Check */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-slate-300 font-semibold">Username</label>
@@ -304,36 +428,60 @@ export const LoginPage = () => {
                   className={`w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 focus:outline-none transition-colors ${
                     regUsername.length === 0
                       ? 'border-slate-700 focus:border-teal-500'
-                      : isUsernameValid
+                      : !isUsernameFormatValid || usernameAvailable === false
+                      ? 'border-rose-500/70 focus:border-rose-400'
+                      : usernameAvailable === true
                       ? 'border-emerald-500/60 focus:border-emerald-400'
-                      : 'border-rose-500/70 focus:border-rose-400'
+                      : 'border-slate-700 focus:border-teal-500'
                   }`}
                 />
                 <User size={15} className="absolute left-3 top-3 text-slate-400" />
                 {regUsername.length > 0 && (
                   <div className="absolute right-3 top-3">
-                    {isUsernameValid ? (
+                    {usernameCheckLoading ? (
+                      <RefreshCw size={14} className="animate-spin text-teal-400" />
+                    ) : usernameAvailable === true ? (
                       <Check size={14} className="text-emerald-400" />
-                    ) : (
+                    ) : !isUsernameFormatValid || usernameAvailable === false ? (
                       <X size={14} className="text-rose-400" />
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
-              {regUsername.length > 0 && !isUsernameValid && (
-                <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
-                  <span>
-                    {!hasNoSpaces
-                      ? 'Spaces are not allowed in username.'
-                      : !isUsernameCharsValid
-                      ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed.'
-                      : 'Must be between 3 and 30 characters.'}
-                  </span>
-                </p>
+
+              {/* Dynamic Username Status Badge */}
+              {regUsername.length > 0 && (
+                <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                  {!hasNoSpaces ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Spaces are not allowed in username.
+                    </span>
+                  ) : !isUsernameCharsValid ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Only letters, numbers, hyphens (-), and underscores (_) are allowed.
+                    </span>
+                  ) : regUsername.length < 3 ? (
+                    <span className="text-amber-400 flex items-center gap-1">
+                      <AlertCircle size={12} /> Must be at least 3 characters.
+                    </span>
+                  ) : usernameCheckLoading ? (
+                    <span className="text-teal-400 flex items-center gap-1">
+                      <RefreshCw size={12} className="animate-spin" /> Checking username in database...
+                    </span>
+                  ) : usernameAvailable === true ? (
+                    <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                      <CheckCircle2 size={12} /> Username is unique & available!
+                    </span>
+                  ) : usernameAvailable === false ? (
+                    <span className="text-rose-400 flex items-center gap-1 font-medium">
+                      <AlertCircle size={12} /> {usernameMsg || 'Username is already taken in database.'}
+                    </span>
+                  ) : null}
+                </div>
               )}
             </div>
 
-            {/* Institutional Email */}
+            {/* Institutional Email with Real-time DB Pre-check */}
             <div>
               <label className="block text-slate-300 font-semibold mb-1">Institutional Email</label>
               <div className="relative">
@@ -343,10 +491,48 @@ export const LoginPage = () => {
                   value={regEmail}
                   onChange={(e) => setRegEmail(e.target.value)}
                   placeholder="faculty@college.vnsgu.ac.in"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  className={`w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border rounded-xl text-white placeholder-slate-500 focus:outline-none transition-colors ${
+                    regEmail.length === 0
+                      ? 'border-slate-700 focus:border-teal-500'
+                      : emailAvailable === false
+                      ? 'border-rose-500/70 focus:border-rose-400'
+                      : emailAvailable === true
+                      ? 'border-emerald-500/60 focus:border-emerald-400'
+                      : 'border-slate-700 focus:border-teal-500'
+                  }`}
                 />
                 <Mail size={15} className="absolute left-3 top-3 text-slate-400" />
+                {regEmail.length > 0 && isEmailValid && (
+                  <div className="absolute right-3 top-3">
+                    {emailCheckLoading ? (
+                      <RefreshCw size={14} className="animate-spin text-teal-400" />
+                    ) : emailAvailable === true ? (
+                      <Check size={14} className="text-emerald-400" />
+                    ) : emailAvailable === false ? (
+                      <X size={14} className="text-rose-400" />
+                    ) : null}
+                  </div>
+                )}
               </div>
+
+              {/* Dynamic Email Status Badge */}
+              {regEmail.length > 0 && isEmailValid && (
+                <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                  {emailCheckLoading ? (
+                    <span className="text-teal-400 flex items-center gap-1">
+                      <RefreshCw size={12} className="animate-spin" /> Checking email in database...
+                    </span>
+                  ) : emailAvailable === true ? (
+                    <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                      <CheckCircle2 size={12} /> Email is available for new registration
+                    </span>
+                  ) : emailAvailable === false ? (
+                    <span className="text-rose-400 flex items-center gap-1 font-medium">
+                      <AlertCircle size={12} /> {emailMsg || 'This email is already registered in our database. Please log in.'}
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             {/* College Name */}
@@ -444,59 +630,56 @@ export const LoginPage = () => {
                 className="w-full py-3 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {regOtpLoading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                <span>{regOtpLoading ? 'Sending Verification Code...' : 'Generate OTP for Verification'}</span>
+                <span>{regOtpLoading ? 'Verifying & Sending OTP...' : 'Generate OTP for Verification'}</span>
               </button>
             ) : (
               <div className="space-y-3 pt-2 border-t border-slate-800">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-300 font-semibold flex items-center gap-1.5">
-                      <ShieldCheck size={14} className="text-teal-400" />
-                      <span>Enter 6-Digit Email OTP</span>
-                    </label>
+                <div className="p-3 bg-teal-500/10 border border-teal-500/20 rounded-2xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-teal-300">Enter Verification Code</span>
                     <button
                       type="button"
-                      onClick={handleSendRegisterOtp}
                       disabled={regCountdown > 0 || regOtpLoading}
-                      className="text-[11px] text-teal-400 hover:text-teal-300 font-medium disabled:opacity-50 transition-colors"
+                      onClick={handleSendRegisterOtp}
+                      className="text-[11px] text-teal-400 hover:underline disabled:text-slate-500 disabled:no-underline"
                     >
                       {regCountdown > 0 ? `Resend in ${regCountdown}s` : 'Resend Code'}
                     </button>
                   </div>
                   <input
                     type="text"
-                    maxLength={6}
                     required
+                    maxLength={6}
                     value={regOtp}
                     onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
-                    className="w-full px-4 py-3 bg-slate-800/90 border border-teal-500/50 rounded-xl text-white text-center font-mono tracking-widest text-lg focus:outline-none focus:border-teal-400"
+                    placeholder="Enter 6-digit OTP"
+                    className="w-full px-3 py-2.5 bg-slate-950 border border-teal-500/40 rounded-xl text-white text-center font-mono text-base tracking-widest focus:outline-none focus:border-teal-400"
                   />
-                  <p className="text-[11px] text-slate-400 mt-1 text-center">
-                    Check your email inbox or spam folder for the code.
+                  <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+                    A 6-digit automated verification code was sent to <strong className="text-slate-200">{regEmail}</strong>
                   </p>
                 </div>
 
                 <button
                   type="submit"
                   disabled={loading || regOtp.length !== 6}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {loading ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                  <span>{loading ? 'Creating Verified Account...' : 'Verify OTP & Complete Registration'}</span>
+                  <span>{loading ? 'Creating Account...' : 'Verify OTP & Complete Registration'}</span>
                 </button>
               </div>
             )}
           </form>
         )}
 
-        {/* ===================== FORGOT PASSWORD FLOW ===================== */}
+        {/* ===================== FORGOT PASSWORD FORM ===================== */}
         {tab === 'forgot' && (
           <div className="space-y-4 text-xs">
             {!forgotOtpSent ? (
               <form onSubmit={handleForgotSendOtp} className="space-y-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Registered Faculty Email</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Registered Email Address</label>
                   <div className="relative">
                     <input
                       type="email"
@@ -508,66 +691,68 @@ export const LoginPage = () => {
                     />
                     <Mail size={15} className="absolute left-3 top-3 text-slate-400" />
                   </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    We will send a 6-digit verification code to reset your account password.
+                  </p>
                 </div>
+
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                  <span>{loading ? 'Sending Code...' : 'Send Password Reset Code'}</span>
+                  <span>{loading ? 'Sending Code...' : 'Send Reset Code'}</span>
                 </button>
               </form>
             ) : (
               <form onSubmit={handleForgotVerifyOtp} className="space-y-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Enter 6-Digit OTP</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Enter Verification Code</label>
                   <input
                     type="text"
-                    maxLength={6}
                     required
+                    maxLength={6}
                     value={forgotOtp}
-                    onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
-                    className="w-full px-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-center font-mono tracking-widest text-lg focus:outline-none focus:border-teal-500"
+                    onChange={(e) => setForgotOtp(e.target.value)}
+                    placeholder="6-digit OTP"
+                    className="w-full px-3 py-2.5 bg-slate-800/80 border border-teal-500/40 rounded-xl text-white text-center font-mono text-sm tracking-widest focus:outline-none focus:border-teal-400"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">New Password</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Create New Password</label>
                   <div className="relative">
                     <input
                       type="password"
                       required
                       value={forgotNewPassword}
                       onChange={(e) => setForgotNewPassword(e.target.value)}
-                      placeholder="e.g. Vnsgu@2026!"
+                      placeholder="Min. 8 characters with upper, lower, num & special"
                       className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                     />
                     <Lock size={15} className="absolute left-3 top-3 text-slate-400" />
                   </div>
                 </div>
+
                 <button
                   type="submit"
-                  disabled={loading || forgotOtp.length !== 6 || forgotNewPassword.length < 8}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  disabled={loading}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loading ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                  <span>{loading ? 'Resetting Password...' : 'Verify OTP & Reset Password'}</span>
+                  <span>{loading ? 'Updating...' : 'Verify & Set New Password'}</span>
                 </button>
               </form>
             )}
-
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => { setTab('login'); setError(''); setSuccessMsg(''); setForgotOtpSent(false); }}
-                className="text-[11px] text-slate-400 hover:text-white font-medium transition-colors"
-              >
-                ← Back to Sign In
-              </button>
-            </div>
           </div>
         )}
+
+      </div>
+
+      {/* Footer Info */}
+      <div className="text-center text-[11px] text-slate-400 z-10">
+        <p>© 2026 Veer Narmad South Gujarat University • Examination Automation Cell</p>
       </div>
     </div>
   );

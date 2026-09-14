@@ -26,10 +26,96 @@ export const validatePassword = (password) => {
   return hasUpper && hasLower && hasNumber && hasSpecial;
 };
 
-// POST /api/auth/send-otp
+// GET /api/auth/check-username - Real-time username uniqueness check
+router.get('/check-username', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username || !username.trim()) {
+      return res.status(400).json({ available: false, valid: false, message: 'Username is required' });
+    }
+
+    const cleanUsername = username.trim();
+    if (!validateUsername(cleanUsername)) {
+      return res.json({
+        available: false,
+        valid: false,
+        message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
+      });
+    }
+
+    const { data: existingUser, error } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .ilike('username', cleanUsername)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Check Username Error]', error);
+      return res.status(500).json({ available: false, valid: true, message: 'Database check failed' });
+    }
+
+    if (existingUser) {
+      return res.json({
+        available: false,
+        valid: true,
+        message: `Username "${cleanUsername}" is already taken.`
+      });
+    }
+
+    return res.json({
+      available: true,
+      valid: true,
+      message: `Username "${cleanUsername}" is available.`
+    });
+  } catch (err) {
+    res.status(500).json({ available: false, message: err.message });
+  }
+});
+
+// GET /api/auth/check-email - Real-time email uniqueness check
+router.get('/check-email', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ available: false, message: 'Email is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return res.json({ available: false, message: 'Invalid email format' });
+    }
+
+    const { data: existingEmail, error } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Check Email Error]', error);
+      return res.status(500).json({ available: false, message: 'Database check failed' });
+    }
+
+    if (existingEmail) {
+      return res.json({
+        available: false,
+        message: 'This email is already registered in our database. Please sign in.'
+      });
+    }
+
+    return res.json({
+      available: true,
+      message: 'Email is available.'
+    });
+  } catch (err) {
+    res.status(500).json({ available: false, message: err.message });
+  }
+});
+
+// POST /api/auth/send-otp - Strict check: OTP only generated/sent if email & username do NOT exist in DB for registration
 router.post('/send-otp', async (req, res) => {
   try {
-    const { email, purpose } = req.body;
+    const { email, purpose, username } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Institutional email is required' });
 
     const cleanEmail = email.trim().toLowerCase();
@@ -37,6 +123,64 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
     }
 
+    const isRegistration = !purpose || purpose.toLowerCase().includes('regist') || purpose.toLowerCase().includes('faculty');
+
+    // 1. STRICT REGISTRATION CHECK: Agar email ya username database me ho, to OTP send NAHI hona chahiye
+    if (isRegistration) {
+      // Check email in profiles
+      const { data: existingEmail, error: emailErr } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is already registered in our database. Please sign in or use Forgot Password.'
+        });
+      }
+
+      // Check username in profiles if provided
+      if (username && typeof username === 'string') {
+        const cleanUsername = username.trim();
+        if (!validateUsername(cleanUsername)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Username cannot contain spaces. Only letters, numbers, hyphens (-) and underscores (_) are allowed (3 to 30 characters).'
+          });
+        }
+
+        const { data: existingUser, error: userErr } = await supabase
+          .from('profiles')
+          .select('id, username')
+          .ilike('username', cleanUsername)
+          .maybeSingle();
+
+        if (existingUser) {
+          return res.status(400).json({
+            success: false,
+            message: `Username "${cleanUsername}" is already taken in our database. Please choose another username.`
+          });
+        }
+      }
+    } else if (purpose && purpose.toLowerCase().includes('reset')) {
+      // Forgot Password: Email MUST exist in database
+      const { data: existingEmail } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      if (!existingEmail) {
+        return res.status(404).json({
+          success: false,
+          message: 'No registered account found with this email address. Please register first.'
+        });
+      }
+    }
+
+    // 2. Generate 6-digit OTP (ONLY reached if all database uniqueness checks pass)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     inMemoryOtps.set(cleanEmail, {
       otp,
@@ -152,11 +296,11 @@ router.post('/register', async (req, res) => {
     // Consume OTP once verified
     inMemoryOtps.delete(cleanEmail);
 
-    // 4. Check if user already exists in profiles
+    // 4. Double check if user already exists in profiles
     const { data: existingUser } = await supabase
       .from('profiles')
       .select('id, username, email')
-      .or(`email.eq.${cleanEmail},username.eq.${cleanUsername}`)
+      .or(`email.ilike.${cleanEmail},username.ilike.${cleanUsername}`)
       .maybeSingle();
 
     if (existingUser) {
