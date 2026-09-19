@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { optionalAuth } from '../middleware/authMiddleware.js';
@@ -125,8 +126,12 @@ router.get('/', optionalAuth, async (req, res) => {
     // Official Gazette Result Summary
     let resultSummary = null;
     try {
-      const summariesPath = path.join(process.cwd(), 'backend/data/session_summaries.json');
-      if (fs.existsSync(summariesPath)) {
+      const candidatePaths = [
+        path.join(os.tmpdir(), 'vnsgu_data', 'session_summaries.json'),
+        path.join(process.cwd(), 'backend/data/session_summaries.json')
+      ];
+      const summariesPath = candidatePaths.find(p => fs.existsSync(p));
+      if (summariesPath) {
         const allSummaries = JSON.parse(fs.readFileSync(summariesPath, 'utf8'));
         if (allSummaries[activeSessionId]) {
           resultSummary = allSummaries[activeSessionId];

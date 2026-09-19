@@ -9,7 +9,7 @@
     "backend": "npm --prefix backend run dev",
     "frontend": "npm --prefix frontend run dev",
     "build:frontend": "npm --prefix frontend run build && node -e \"const fs=require('fs');fs.copyFileSync('frontend/dist/index.html','backend/public/index.html');console.log('Frontend synced to backend/public/index.html');\"",
-    "build": "node -e \"const fs=require('fs');if(!fs.existsSync('backend/public/index.html')){require('child_process').execSync('npm run build:frontend');}console.log('Build ready: backend/public/index.html verified');\""
+    "build": "npm run build:frontend"
   },
   "keywords": [
     "vnsgu",

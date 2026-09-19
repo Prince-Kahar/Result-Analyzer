@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { supabase } from '../config/supabase.js';
 import { parsePdfWithWorker } from '../services/pdfParserService.js';
 import { uploadFileToS3 } from '../services/s3Service.js';
@@ -9,7 +10,7 @@ import { optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-const uploadDir = 'uploads/';
+const uploadDir = path.join(os.tmpdir(), 'vnsgu_uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -31,32 +32,6 @@ async function processUploadedPdf(filePath, originalName, user, res) {
     }
 
     const { course, semester, academic_year, college_name, students, result_summary } = parsedData;
-
-    // Persist Gazette Result Summary for instant Dashboard display
-    if (result_summary && Object.keys(result_summary).length > 0) {
-      try {
-        const summariesPath = path.join(process.cwd(), 'backend/data/session_summaries.json');
-        let allSummaries = {};
-        if (fs.existsSync(summariesPath)) {
-          allSummaries = JSON.parse(fs.readFileSync(summariesPath, 'utf8'));
-        }
-        allSummaries[sessionId] = result_summary;
-        fs.writeFileSync(summariesPath, JSON.stringify(allSummaries, null, 2));
-      } catch (err) {
-        console.warn('Failed to save session summary:', err.message);
-      }
-    }
-
-    if (!students || students.length === 0) {
-      throw new Error('No student records could be extracted from this PDF format. Please ensure it is an official VNSGU examination gazette.');
-    }
-
-    let s3Archive = null;
-    try {
-      s3Archive = await uploadFileToS3(filePath, originalName);
-    } catch (s3Err) {
-      console.warn('S3 archive warning (non-fatal):', s3Err.message);
-    }
 
     let sessionId = Math.floor(Date.now() / 1000);
     let userId = null;
@@ -89,6 +64,36 @@ async function processUploadedPdf(filePath, originalName, user, res) {
       }
     } catch (e) {
       console.warn('Supabase import_sessions fallback:', e.message);
+    }
+
+    // Persist Gazette Result Summary for instant Dashboard display
+    if (result_summary && Object.keys(result_summary).length > 0) {
+      try {
+        const summariesDir = path.join(os.tmpdir(), 'vnsgu_data');
+        if (!fs.existsSync(summariesDir)) {
+          fs.mkdirSync(summariesDir, { recursive: true });
+        }
+        const summariesPath = path.join(summariesDir, 'session_summaries.json');
+        let allSummaries = {};
+        if (fs.existsSync(summariesPath)) {
+          allSummaries = JSON.parse(fs.readFileSync(summariesPath, 'utf8'));
+        }
+        allSummaries[sessionId] = result_summary;
+        fs.writeFileSync(summariesPath, JSON.stringify(allSummaries, null, 2));
+      } catch (err) {
+        console.warn('Failed to save session summary:', err.message);
+      }
+    }
+
+    if (!students || students.length === 0) {
+      throw new Error('No student records could be extracted from this PDF format. Please ensure it is an official VNSGU examination gazette.');
+    }
+
+    let s3Archive = null;
+    try {
+      s3Archive = await uploadFileToS3(filePath, originalName);
+    } catch (s3Err) {
+      console.warn('S3 archive warning (non-fatal):', s3Err.message);
     }
 
     const chunkSize = 50;
