@@ -32,7 +32,12 @@ function logActivity(action, details, user) {
   if (auditLogs.length > 100) auditLogs.pop();
 }
 
-// Apply requireAdmin middleware to all /api/admin routes
+// GET /api/admin/announcement - Publicly accessible broadcast banner for all users
+router.get('/announcement', (req, res) => {
+  res.json({ success: true, announcement: systemAnnouncement });
+});
+
+// Apply requireAdmin middleware to all subsequent administrative routes
 router.use(requireAdmin);
 
 // ==================== 1. SYSTEM & ADMIN STATS & VITALS ====================
@@ -720,10 +725,7 @@ router.post('/test-smtp', async (req, res) => {
   }
 });
 
-// GET /api/admin/announcement - Get current announcement
-router.get('/announcement', (req, res) => {
-  res.json({ success: true, announcement: systemAnnouncement });
-});
+// Broadcast update route (Protected)
 
 // POST /api/admin/announcement - Update announcement
 router.post('/announcement', (req, res) => {

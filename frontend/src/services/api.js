@@ -58,6 +58,8 @@ export const api = {
   verifyOtp: (email, otp) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email, otp }) }),
   updateProfile: (data) => request('/auth/update-profile', { method: 'POST', body: JSON.stringify(data) }),
   updatePassword: (data) => request('/auth/update-password', { method: 'POST', body: JSON.stringify(data) }),
+  resetPassword: (email, otp, new_password) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ email, otp, new_password }) }),
+  getAnnouncement: () => request('/admin/announcement'),
 
   // Dashboard & Sessions
   getDashboard: (params = '') => request(`/dashboard?${params}`),

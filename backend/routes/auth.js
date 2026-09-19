@@ -629,4 +629,72 @@ router.post('/update-password', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/auth/reset-password (Unauthenticated OTP-based password reset)
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, otp, new_password } = req.body;
+    if (!email || !otp || !new_password) {
+      return res.status(400).json({ success: false, message: 'Email, OTP, and new password are required.' });
+    }
+
+    const cleanEmail = sanitizeSqlInput(email.toLowerCase().trim());
+
+    if (!validatePassword(new_password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 8 characters and include uppercase, lowercase, numbers, and a special character.'
+      });
+    }
+
+    const record = inMemoryOtps.get(cleanEmail);
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active OTP verification session found. Please request a new OTP code.'
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      inMemoryOtps.delete(cleanEmail);
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a fresh OTP.' });
+    }
+
+    if (record.otp !== otp.trim()) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP code. Please enter the correct 6-digit code.' });
+    }
+
+    // Verify user exists in profiles
+    const { data: user, error: userErr } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (userErr || !user) {
+      return res.status(404).json({ success: false, message: 'No registered user found with this email address.' });
+    }
+
+    // Update password directly in profiles (original password preserved)
+    const { error: updateErr } = await supabase
+      .from('profiles')
+      .update({
+        password: new_password,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+
+    if (updateErr) throw updateErr;
+
+    // Consume OTP once verified
+    inMemoryOtps.delete(cleanEmail);
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully! You can now log in with your new password.'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 export default router;
