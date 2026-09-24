@@ -54,7 +54,7 @@ router.get('/stats', async (req, res) => {
 
     const totalUsers = users?.length || 0;
     const adminCount = users?.filter(u => {
-      if (u.username === 'sascma_admin') return true;
+      if (u.username === 'sascma_admin' || u.username === 'SascmaAdmin' || u.role === 'admin') return true;
       try {
         const sub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : u.subscription;
         return sub?.role === 'admin';
@@ -129,7 +129,7 @@ router.get('/users', async (req, res) => {
       return {
         ...u,
         created_at: u.updated_at,
-        role: (u.username === 'sascma_admin' || sub.role === 'admin') ? 'admin' : 'faculty',
+        role: (u.username === 'sascma_admin' || u.username === 'SascmaAdmin' || u.role === 'admin' || sub.role === 'admin') ? 'admin' : 'faculty',
         status: sub.status || 'Active',
         password: u.password || '—' // Original password preserved!
       };
@@ -276,7 +276,7 @@ router.post('/users/:id/role', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (user?.username === 'sascma_admin' && role !== 'admin') {
+    if ((user?.username === 'sascma_admin' || user?.username === 'SascmaAdmin') && role !== 'admin') {
       return res.status(400).json({ success: false, message: 'Primary super administrator role cannot be demoted.' });
     }
 
@@ -311,7 +311,7 @@ router.post('/users/:id/toggle-status', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (user?.username === 'sascma_admin') {
+    if (user?.username === 'sascma_admin' || user?.username === 'SascmaAdmin') {
       return res.status(400).json({ success: false, message: 'Primary super administrator cannot be suspended.' });
     }
 
@@ -347,7 +347,7 @@ router.delete('/users/:id', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (targetUser?.username === 'sascma_admin') {
+    if (targetUser?.username === 'sascma_admin' || targetUser?.username === 'SascmaAdmin') {
       return res.status(400).json({ success: false, message: 'Primary super administrator account cannot be deleted.' });
     }
 

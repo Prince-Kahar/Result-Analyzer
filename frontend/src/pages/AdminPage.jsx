@@ -195,7 +195,7 @@ export const AdminPage = () => {
   };
 
   // Access check: Only superadmin or admin role allowed
-  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin';
+  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin' || user?.username === 'SascmaAdmin';
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
@@ -251,7 +251,7 @@ export const AdminPage = () => {
 
   const handleToggleRole = async (targetUser) => {
     const newRole = targetUser.role === 'admin' ? 'faculty' : 'admin';
-    if (targetUser.username === 'sascma_admin' && newRole !== 'admin') {
+    if ((targetUser.username === 'sascma_admin' || targetUser.username === 'SascmaAdmin') && newRole !== 'admin') {
       return showToast('Cannot demote root superadministrator.', 'error');
     }
     if (!window.confirm(`Change ${targetUser.username}'s role to ${newRole.toUpperCase()}?`)) return;
@@ -269,7 +269,7 @@ export const AdminPage = () => {
   };
 
   const handleToggleStatus = async (targetUser) => {
-    if (targetUser.username === 'sascma_admin') {
+    if (targetUser.username === 'sascma_admin' || targetUser.username === 'SascmaAdmin') {
       return showToast('Root superadministrator cannot be suspended.', 'error');
     }
     try {
@@ -302,7 +302,7 @@ export const AdminPage = () => {
   };
 
   const handleDeleteUser = async (targetUser) => {
-    if (targetUser.username === 'sascma_admin') {
+    if (targetUser.username === 'sascma_admin' || targetUser.username === 'SascmaAdmin') {
       return showToast('Cannot delete root superadministrator account.', 'error');
     }
     if (!window.confirm(`PERMANENT ACTION: Delete user "${targetUser.username}"? This cannot be undone.`)) return;
@@ -971,7 +971,7 @@ export const AdminPage = () => {
                                 >
                                   <KeyRound size={15} />
                                 </button>
-                                {u.username !== 'sascma_admin' && (
+                                {u.username !== 'sascma_admin' && u.username !== 'SascmaAdmin' && (
                                   <button
                                     onClick={() => handleDeleteUser(u)}
                                     className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"

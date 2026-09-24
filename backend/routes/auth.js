@@ -549,7 +549,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Incorrect password entered.' });
     }
 
-    const role = (user.username === 'sascma_admin' || user.role === 'admin' || user.subscription?.role === 'admin') ? 'admin' : 'user';
+    const role = (user.username === 'sascma_admin' || user.username === 'SascmaAdmin' || user.role === 'admin' || user.subscription?.role === 'admin') ? 'admin' : 'user';
 
     const token = jwt.sign(
       { id: user.id, username: user.username, email: user.email, role },

@@ -189,7 +189,7 @@ export const LoginPage = () => {
       const redirectUrl = searchParams.get('redirect');
       if (redirectUrl) {
         navigate(redirectUrl);
-      } else if (res?.user?.role === 'admin' || res?.user?.username === 'sascma_admin') {
+      } else if (res?.user?.role === 'admin' || res?.user?.username === 'sascma_admin' || res?.user?.username === 'SascmaAdmin') {
         navigate('/admin');
       } else if (!hasUploaded) {
         navigate('/upload');

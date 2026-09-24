@@ -22,7 +22,7 @@ import {
 
 export const MobileDrawer = ({ isOpen, onClose }) => {
   const { user, isAuthenticated, logout } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin';
+  const isAdmin = user?.role === 'admin' || user?.username === 'sascma_admin' || user?.username === 'SascmaAdmin';
   const location = useLocation();
   const navigate = useNavigate();
 
